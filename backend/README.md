@@ -38,7 +38,7 @@ spring.datasource.password=app
 ## Quick Start
 
 1. Copy this folder into new repo.
-2. Search & replace package `com.expensetracker` -> `com.yourdomain`.
+2. Search & replace package `com.expensetracker` -> `com.resume`.
 3. Generate a new JWT secret (>= 32 chars).
 4. Adjust dependencies in `pom.xml` (remove unused: Oracle, AWS, etc. if not needed).
 5. Create initial migration & run `mvn spring-boot:run`.

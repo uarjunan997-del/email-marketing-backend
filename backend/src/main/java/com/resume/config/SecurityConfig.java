@@ -1,4 +1,4 @@
-package com.yourdomain.config;
+package com.resume.config;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;

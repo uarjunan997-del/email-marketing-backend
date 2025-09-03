@@ -1,4 +1,4 @@
-package com.yourdomain.config;
+package com.resume.config;
 
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;

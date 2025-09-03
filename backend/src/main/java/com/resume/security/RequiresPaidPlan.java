@@ -1,4 +1,4 @@
-package com.yourdomain.security;
+package com.resume.security;
 
 import java.lang.annotation.*;
 

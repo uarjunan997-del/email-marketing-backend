@@ -1,4 +1,4 @@
-package com.yourdomain.security;
+package com.resume.security;
 
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.Aspect;
@@ -18,7 +18,7 @@ public class PlanAccessAspect {
 
     public PlanAccessAspect(CurrentUserProvider currentUserProvider) { this.currentUserProvider = currentUserProvider; }
 
-    @Before("@within(com.yourdomain.security.RequiresPaidPlan) || @annotation(com.yourdomain.security.RequiresPaidPlan) || @within(com.yourdomain.security.RequiresPlan) || @annotation(com.yourdomain.security.RequiresPlan)")
+    @Before("@within(com.resume.security.RequiresPaidPlan) || @annotation(com.resume.security.RequiresPaidPlan) || @within(com.resume.security.RequiresPlan) || @annotation(com.resume.security.RequiresPlan)")
     public void ensurePlan(JoinPoint jp) {
         UserLike u = currentUserProvider.currentUser();
         PlanTier userTier = u == null ? PlanTier.FREE : u.planTier();

@@ -1,4 +1,4 @@
-package com.yourdomain.exception;
+package com.resume.exception;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

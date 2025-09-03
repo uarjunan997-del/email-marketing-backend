@@ -1,4 +1,4 @@
-package com.yourdomain.config;
+package com.resume.config;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
