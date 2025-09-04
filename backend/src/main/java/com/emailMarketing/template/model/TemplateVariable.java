@@ -1,0 +1,5 @@
+package com.emailMarketing.template.model;
+
+import jakarta.persistence.*;
+@Entity @Table(name="template_variables", indexes=@Index(name="idx_template_variables_template", columnList="template_id"))
+public class TemplateVariable { @Id @GeneratedValue(strategy=GenerationType.IDENTITY) private Long id; private Long templateId; @Column(nullable=false) private String varName; @Column(length=4000) private String defaultValue; private String description; private boolean required; public Long getId(){return id;} public void setId(Long id){this.id=id;} public Long getTemplateId(){return templateId;} public void setTemplateId(Long templateId){this.templateId=templateId;} public String getVarName(){return varName;} public void setVarName(String varName){this.varName=varName;} public String getDefaultValue(){return defaultValue;} public void setDefaultValue(String defaultValue){this.defaultValue=defaultValue;} public String getDescription(){return description;} public void setDescription(String description){this.description=description;} public boolean isRequired(){return required;} public void setRequired(boolean required){this.required=required;} }

@@ -1,0 +1,5 @@
+package com.emailMarketing.template.model;
+
+import jakarta.persistence.*; import java.time.LocalDateTime;
+@Entity @Table(name="template_versions", indexes=@Index(name="idx_template_versions_template", columnList="template_id"))
+public class TemplateVersion { @Id @GeneratedValue(strategy=GenerationType.IDENTITY) private Long id; private Long templateId; private Long versionNumber; @Lob private String html; private LocalDateTime createdAt = LocalDateTime.now(); private String createdBy; public Long getId(){return id;} public void setId(Long id){this.id=id;} public Long getTemplateId(){return templateId;} public void setTemplateId(Long templateId){this.templateId=templateId;} public Long getVersionNumber(){return versionNumber;} public void setVersionNumber(Long versionNumber){this.versionNumber=versionNumber;} public String getHtml(){return html;} public void setHtml(String html){this.html=html;} public LocalDateTime getCreatedAt(){return createdAt;} public void setCreatedAt(LocalDateTime createdAt){this.createdAt=createdAt;} public String getCreatedBy(){return createdBy;} public void setCreatedBy(String createdBy){this.createdBy=createdBy;} }
