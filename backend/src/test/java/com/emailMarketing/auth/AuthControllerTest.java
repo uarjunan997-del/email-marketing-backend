@@ -39,10 +39,10 @@ class AuthControllerTest {
     void register_ok() throws Exception {
         Mockito.when(userRepository.findByUsername("alice")).thenReturn(Optional.empty());
         Mockito.when(userRepository.findByEmail("a@b.com")).thenReturn(Optional.empty());
-        Mockito.when(passwordEncoder.encode("pw")).thenReturn("ENC");
+        Mockito.when(passwordEncoder.encode("pwlong")).thenReturn("ENC");
     Mockito.when(jwtUtil.generateAccessToken("alice", java.util.Set.of("USER"))).thenReturn("TOKEN");
         Mockito.when(userRepository.save(Mockito.any(User.class))).thenAnswer(inv->inv.getArgument(0));
-        mvc.perform(post("/auth/register").contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"alice\",\"password\":\"pw\",\"email\":\"a@b.com\"}"))
+    mvc.perform(post("/auth/register").contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"alice\",\"password\":\"pwlong\",\"email\":\"a@b.com\"}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.token").value("TOKEN"));
     }
@@ -57,10 +57,13 @@ class AuthControllerTest {
 
     @Test
     void login_ok() throws Exception {
-        Authentication auth = new UsernamePasswordAuthenticationToken("alice", "pw");
+    Authentication auth = new UsernamePasswordAuthenticationToken("alice", "pwlong");
         Mockito.when(authenticationManager.authenticate(Mockito.any())).thenReturn(auth);
     Mockito.when(jwtUtil.generateAccessToken("alice", java.util.Set.of("USER"))).thenReturn("TOKEN");
-        mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"alice\",\"password\":\"pw\"}"))
+    com.emailMarketing.subscription.User user = new com.emailMarketing.subscription.User();
+    user.setId(1L); user.setUsername("alice"); user.setEmail("a@b.com"); user.getRoles().add("USER");
+    Mockito.when(userRepository.findByUsername("alice")).thenReturn(java.util.Optional.of(user));
+    mvc.perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"alice\",\"password\":\"pwlong\"}"))
             .andExpect(status().isOk());
     }
 }

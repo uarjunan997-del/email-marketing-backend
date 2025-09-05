@@ -1,17 +1,27 @@
 spring:
+  flyway:
+    enabled: false   # Disable Flyway for tests; we use schema.sql for lightweight H2 schema
+  sql:
+    init:
+      mode: always
   datasource:
-    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
-    driverClassName: org.h2.Driver
+    url: jdbc:h2:mem:emailtest;MODE=Oracle;DB_CLOSE_DELAY=-1
     username: sa
-    password: sa
+    password: 
+    driver-class-name: org.h2.Driver
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: none
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
-  flyway:
-    enabled: false
+
+logging:
+  level:
+    root: WARN
+    org.flywaydb: WARN
+    com.emailMarketing: INFO
+
 security:
   jwt:
     secret: TEST_SECRET_TEST_SECRET_TEST_SECRET_TEST_SECRET

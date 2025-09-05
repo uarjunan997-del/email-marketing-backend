@@ -1,6 +1,6 @@
 spring:
   application:
-    name: email-marketing-api
+    name: email-marketing-backend
   datasource:
     url: ${DB_URL:jdbc:oracle:thin:@localhost:1521/XEPDB1}
     username: ${DB_USER:APP}
@@ -35,6 +35,58 @@ security:
   jwt:
     secret: ${JWT_SECRET:CHANGE_ME_SUPER_LONG_SECRET_CHANGE_ME_SUPER_LONG_SECRET}
 
+rateLimiter:
+  adminBackfill:
+    capacity: 5
+    refillSeconds: 300
+
+admin:
+  audit:
+    enabled: true
+
+forecast:
+  hw:
+    alpha: 0.3
+    beta: 0.05
+    gamma: 0.2
+
+alerts:
+  thresholds:
+    open-rate-min: 0.15
+  resilience4j:
+    circuitbreaker:
+      instances:
+        exchangeRateApi:
+          failure-rate-threshold: 50
+          sliding-window-size: 20
+          wait-duration-in-open-state: 30s
+          permitted-number-of-calls-in-half-open-state: 3
+        benchmarkApi:
+          failure-rate-threshold: 40
+          sliding-window-size: 10
+          wait-duration-in-open-state: 60s
+    retry:
+      instances:
+        exchangeRateApi:
+          max-attempts: 3
+          wait-duration: 500ms
+        benchmarkApi:
+          max-attempts: 4
+          wait-duration: 1s
+        dbInsertTransient:
+          max-attempts: 3
+          wait-duration: 200ms
+    open-rate-drop-pct: 20   # percent drop vs baseline
+    click-rate-drop-pct: 25  # percent drop vs baseline
+    conversion-spike-pct: 50 # percent spike vs baseline
+
+timeseries:
+  mv:
+    refresh-ms: 300000
+  cache:
+    warm:
+      campaign-ids: ""   # comma separated list, empty means skip campaign warming
+
 app:
   security:
     cors:
@@ -43,6 +95,8 @@ app:
     default:
       currency: USD
       free-plan: FREE
+finance:
+  base-currency: USD
   email:
     from-address: ${EMAIL_FROM:no-reply@yourdomain.com}
     queue:

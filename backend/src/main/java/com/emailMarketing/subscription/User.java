@@ -11,6 +11,7 @@ public class User {
   @Column(nullable=false, unique=true) private String email;
   private String firstName; private String lastName; private String currency = "USD"; private String locale = "en-US";
   private boolean emailVerified = false; private boolean active = true; private boolean locked = false;
+  private boolean isAdmin = false;
   @ElementCollection(fetch=FetchType.EAGER)
   @CollectionTable(name="user_roles", joinColumns=@JoinColumn(name="user_id"))
   @Column(name="role")
@@ -27,6 +28,7 @@ public class User {
   public boolean isEmailVerified(){return emailVerified;} public void setEmailVerified(boolean v){this.emailVerified=v;}
   public boolean isActive(){return active;} public void setActive(boolean a){this.active=a;}
   public boolean isLocked(){return locked;} public void setLocked(boolean l){this.locked=l;}
+  public boolean isAdmin(){return isAdmin;} public void setAdmin(boolean a){this.isAdmin=a;}
   public java.util.Set<String> getRoles(){return roles;} public void setRoles(java.util.Set<String> r){this.roles=r;}
   public Subscription getSubscription(){return subscription;} public void setSubscription(Subscription s){this.subscription=s;}
 }

@@ -16,4 +16,10 @@ public interface EmailEventRepository extends JpaRepository<EmailEvent, Long> {
 
   @Query(value = "SELECT /*+ PARALLEL(2) */ e.campaign_id, SUM(CASE WHEN e.event_type='OPEN' THEN 1 ELSE 0 END) opens, SUM(CASE WHEN e.event_type='CLICK' THEN 1 ELSE 0 END) clicks FROM email_events e WHERE e.user_id=:uid GROUP BY e.campaign_id", nativeQuery = true)
   List<Object[]> campaignEngagement(@Param("uid") Long userId);
+
+  @Query(value = "SELECT /*+ PARALLEL(2) */ COUNT(*) FROM email_events e WHERE e.user_id=:uid AND e.event_type='BOUNCE' AND e.event_time>=:since", nativeQuery = true)
+  long countBouncesSince(@Param("uid") Long userId, @Param("since") LocalDateTime since);
+
+  @Query(value = "SELECT /*+ PARALLEL(2) */ COUNT(*) FROM email_events e WHERE e.user_id=:uid AND e.event_type='SENT' AND e.event_time>=:since", nativeQuery = true)
+  long countSentSince(@Param("uid") Long userId, @Param("since") LocalDateTime since);
 }

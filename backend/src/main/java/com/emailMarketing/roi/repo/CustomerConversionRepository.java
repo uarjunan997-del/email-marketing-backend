@@ -1,0 +1,2 @@
+package com.emailMarketing.roi.repo; import com.emailMarketing.roi.CustomerConversion; import org.springframework.data.jpa.repository.JpaRepository; import java.time.*; import java.util.*;
+public interface CustomerConversionRepository extends JpaRepository<CustomerConversion, Long> { List<CustomerConversion> findByCampaignIdAndConversionDateBetween(Long campaignId, LocalDate from, LocalDate to); }

@@ -1,0 +1,2 @@
+package com.emailMarketing.roi.repo; import com.emailMarketing.roi.ExchangeRate; import org.springframework.data.jpa.repository.JpaRepository; import java.time.*; import java.util.*;
+public interface ExchangeRateRepository extends JpaRepository<ExchangeRate, ExchangeRate.ExchangeRateId> { Optional<ExchangeRate> findTopByIdBaseCurrencyAndIdQuoteCurrencyAndIdRateDateLessThanEqualOrderByIdRateDateDesc(String base, String quote, LocalDate date); }

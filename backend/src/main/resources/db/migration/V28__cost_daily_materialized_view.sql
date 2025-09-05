@@ -1,0 +1,16 @@
+-- Materialized view for daily org cost aggregation (Oracle). Tests on H2 can ignore failure if executed conditionally.
+-- MV LOG (fast refresh support)
+-- Note: If this fails on non-Oracle (e.g., H2), you may exclude this migration in test profile.
+BEGIN
+    EXECUTE IMMEDIATE 'CREATE MATERIALIZED VIEW LOG ON CAMPAIGN_COSTS WITH ROWID, SEQUENCE (ORG_ID, COST_DATE, AMOUNT) INCLUDING NEW VALUES';
+EXCEPTION WHEN OTHERS THEN NULL; END;
+/
+BEGIN
+    EXECUTE IMMEDIATE q'[CREATE MATERIALIZED VIEW COST_DAILY_AGG_MV
+        BUILD IMMEDIATE REFRESH FAST ON DEMAND
+        AS SELECT ORG_ID, COST_DATE, SUM(AMOUNT) AS TOTAL_COST, MIN(CURRENCY) AS BASE_CURRENCY
+           FROM CAMPAIGN_COSTS
+           WHERE ORG_ID IS NOT NULL
+           GROUP BY ORG_ID, COST_DATE]';
+EXCEPTION WHEN OTHERS THEN NULL; END;
+/
