@@ -71,3 +71,74 @@ Unauthorized plans receive `403 FEATURE_LOCKED` with message instructing upgrade
 - Add refresh tokens if long sessions needed.
 - Add roles/authorities to `UserDetails` for fine-grained access.
 - Introduce multi-tenancy or organization scoping if needed.
+
+## Contacts: Dynamic Lists (Segments)
+
+Dynamic contact lists are powered by a simple JSON filter stored as a string in `contact_lists.dynamic_query` and evaluated by the backend when you preview or materialize the list.
+
+Supported operators inside `dynamic_query`:
+- segmentEquals: exact match on the `contacts.segment` field.
+- segmentStartsWith: prefix match (uses `LIKE 'prefix%'`).
+- segmentContains: substring match, case-insensitive (uses `LOWER(segment) LIKE '%value%'`).
+- unsubscribed: boolean filter on `contacts.unsubscribed` (true or false).
+
+Notes
+- Combine operators; they are ANDed together. Example: match segment contains “vip” AND unsubscribed false.
+- `dynamic_query` is a JSON string. In HTTP JSON bodies, ensure it’s stringified (escape inner quotes) as shown below.
+
+Endpoints
+- Create list: POST `/contacts/lists`
+- Update list: PUT `/contacts/lists/{listId}`
+- Preview dynamic list: GET `/contacts/lists/{listId}/preview` → returns `{ count, sample[] }`
+- Materialize dynamic list: POST `/contacts/lists/{listId}/materialize` → inserts rows into `contact_list_members`
+
+Examples (request bodies)
+
+1) Create a dynamic list with exact segment match
+
+{
+  "name": "VIP Members",
+  "description": "All contacts in VIP segment",
+  "isDynamic": true,
+  "dynamicQuery": "{\"segmentEquals\":\"VIP\"}"
+}
+
+2) Create using startsWith
+
+{
+  "name": "VIP Prefix",
+  "description": "Segments starting with VIP",
+  "isDynamic": true,
+  "dynamicQuery": "{\"segmentStartsWith\":\"VIP\"}"
+}
+
+3) Create using contains (case-insensitive)
+
+{
+  "name": "Prospects",
+  "description": "Segments containing 'prospect'",
+  "isDynamic": true,
+  "dynamicQuery": "{\"segmentContains\":\"prospect\"}"
+}
+
+4) Create using unsubscribed filter
+
+{
+  "name": "Unsubscribed",
+  "description": "All unsubscribed contacts",
+  "isDynamic": true,
+  "dynamicQuery": "{\"unsubscribed\":true}"
+}
+
+5) Combined filters
+
+{
+  "name": "VIP Active",
+  "description": "VIP but not unsubscribed",
+  "isDynamic": true,
+  "dynamicQuery": "{\"segmentContains\":\"vip\",\"unsubscribed\":false}"
+}
+
+Preview and materialize
+- Preview: `GET /contacts/lists/{listId}/preview` → returns match count and a short sample of contacts.
+- Materialize: `POST /contacts/lists/{listId}/materialize` → rebuilds `contact_list_members` from current filters. Use this to freeze a snapshot for campaigns.

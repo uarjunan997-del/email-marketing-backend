@@ -49,7 +49,10 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                .requestMatchers("/auth/**", "/api/auth/**", "/public/**", "/track/**", "/actuator/health", "/v3/api-docs/**", "/swagger-ui/**").permitAll()
+                // Public endpoints (allow register/login but not /api/auth/me)
+                .requestMatchers("/auth/**").permitAll()
+                .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/forgot-password", "/api/auth/reset-password", "/api/auth/verify-email/**").permitAll()
+                .requestMatchers("/public/**", "/track/**", "/actuator/health", "/v3/api-docs/**", "/swagger-ui/**").permitAll()
                 .requestMatchers("/api/timeseries/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));

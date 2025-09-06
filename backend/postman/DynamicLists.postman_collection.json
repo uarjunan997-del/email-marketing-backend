@@ -1,0 +1,111 @@
+{
+  "info": {
+    "_postman_id": "c2a1c7a2-fb5b-4f34-9e8a-7b3cddbfed01",
+    "name": "Contacts - Dynamic Lists",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Sample requests for creating, previewing, and materializing dynamic contact lists."
+  },
+  "item": [
+    {
+      "name": "Create Dynamic List (segmentEquals)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "url": { "raw": "{{baseUrl}}/contacts/lists", "host": ["{{baseUrl}}"], "path": ["contacts","lists"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"VIP Members\",\n  \"description\": \"All contacts in VIP segment\",\n  \"isDynamic\": true,\n  \"dynamicQuery\": \"{\\\"segmentEquals\\\":\\\"VIP\\\"}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Create Dynamic List (segmentStartsWith)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "url": { "raw": "{{baseUrl}}/contacts/lists", "host": ["{{baseUrl}}"], "path": ["contacts","lists"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"VIP Prefix\",\n  \"description\": \"Segments starting with VIP\",\n  \"isDynamic\": true,\n  \"dynamicQuery\": \"{\\\"segmentStartsWith\\\":\\\"VIP\\\"}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Create Dynamic List (segmentContains)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "url": { "raw": "{{baseUrl}}/contacts/lists", "host": ["{{baseUrl}}"], "path": ["contacts","lists"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Prospects\",\n  \"description\": \"Segments containing 'prospect'\",\n  \"isDynamic\": true,\n  \"dynamicQuery\": \"{\\\"segmentContains\\\":\\\"prospect\\\"}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Create Dynamic List (unsubscribed)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "url": { "raw": "{{baseUrl}}/contacts/lists", "host": ["{{baseUrl}}"], "path": ["contacts","lists"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Unsubscribed\",\n  \"description\": \"All unsubscribed contacts\",\n  \"isDynamic\": true,\n  \"dynamicQuery\": \"{\\\"unsubscribed\\\":true}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Create Dynamic List (combined)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "url": { "raw": "{{baseUrl}}/contacts/lists", "host": ["{{baseUrl}}"], "path": ["contacts","lists"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"VIP Active\",\n  \"description\": \"VIP but not unsubscribed\",\n  \"isDynamic\": true,\n  \"dynamicQuery\": \"{\\\"segmentContains\\\":\\\"vip\\\",\\\"unsubscribed\\\":false}\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Preview Dynamic List",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "url": { "raw": "{{baseUrl}}/contacts/lists/{{listId}}/preview", "host": ["{{baseUrl}}"], "path": ["contacts","lists","{{listId}}","preview"] }
+      }
+    },
+    {
+      "name": "Materialize Dynamic List",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "url": { "raw": "{{baseUrl}}/contacts/lists/{{listId}}/materialize", "host": ["{{baseUrl}}"], "path": ["contacts","lists","{{listId}}","materialize"] }
+      }
+    }
+  ],
+  "event": [],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "token", "value": "" },
+    { "key": "listId", "value": "1" }
+  ]
+}

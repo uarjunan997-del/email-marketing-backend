@@ -31,7 +31,9 @@ public class AdvancedAuthController {
   @PostMapping("/register")
   public ResponseEntity<?> register(@RequestBody RegisterRequest req){
     var u = authService.register(req.username(), req.email(), req.password());
-    return ResponseEntity.ok(Map.of("userId", u.getId(), "message","verification_sent"));
+    var access = authService.login(req.username(), req.password(), "127.0.0.1"); // Auto-login after register
+    var refresh = authService.createRefreshToken(u.getId());
+    return ResponseEntity.ok(new TokenResponse(access, refresh, Instant.now().plusSeconds(900).toEpochMilli()));
   }
 
   @PostMapping("/login")
@@ -41,6 +43,18 @@ public class AdvancedAuthController {
     var user = userRepository.findByUsername(req.username()).orElseThrow();
     var refresh = authService.createRefreshToken(user.getId());
     return ResponseEntity.ok(new TokenResponse(access, refresh, Instant.now().plusSeconds(900).toEpochMilli()));
+  }
+
+  // Return current authenticated user profile. Protected endpoint (not permitted anonymously in SecurityConfig)
+  @GetMapping("/me")
+  public ResponseEntity<?> me(@AuthenticationPrincipal UserDetails principal){
+    var user = userRepository.findByUsername(principal.getUsername()).orElseThrow();
+    return ResponseEntity.ok(java.util.Map.of(
+      "id", user.getId(),
+      "username", user.getUsername(),
+      "email", user.getEmail(),
+      "roles", user.getRoles()
+    ));
   }
 
   @PostMapping("/refresh-token")

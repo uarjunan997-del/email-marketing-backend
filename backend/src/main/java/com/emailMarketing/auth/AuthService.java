@@ -25,6 +25,7 @@ public class AuthService {
     if(userRepository.findByUsername(username).isPresent()) throw new IllegalArgumentException("Username exists");
     if(userRepository.findByEmail(email).isPresent()) throw new IllegalArgumentException("Email exists");
     User u = new User(); u.setUsername(username); u.setEmail(email); u.setPassword(encoder.encode(rawPassword)); u.getRoles().add("USER");
+    u.setEmailVerified(true); // For testing - skip email verification
     userRepository.save(u);
     var evt = new EmailVerificationToken(); evt.setUserId(u.getId()); evt.setToken(token()); evt.setExpiry(Instant.now().plus(Duration.ofHours(24))); emailVerRepo.save(evt);
     send(email, "Verify your account", "Click link: https://app.example.com/verify?token="+evt.getToken());

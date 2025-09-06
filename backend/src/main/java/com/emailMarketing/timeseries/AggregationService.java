@@ -31,7 +31,9 @@ public class AggregationService {
             "   FROM revenue_attribution WHERE created_at BETWEEN ? AND ? GROUP BY user_id,campaign_id,TRUNC(created_at,'HH24')" +
             ") ra ON ra.user_id=e.user_id AND ra.campaign_id=e.campaign_id AND ra.bucket_start=TRUNC(e.event_time,'HH24')" +
             " WHERE e.event_time BETWEEN ? AND ? GROUP BY e.user_id, e.campaign_id, TRUNC(e.event_time,'HH24')",
-            java.sql.Timestamp.valueOf(from), java.sql.Timestamp.valueOf(now));
+            java.sql.Timestamp.valueOf(from), java.sql.Timestamp.valueOf(now), // subquery date range
+            java.sql.Timestamp.valueOf(from), java.sql.Timestamp.valueOf(now)  // outer email_events date range
+        );
     }
 
     // Nightly daily/weekly/monthly rollup
