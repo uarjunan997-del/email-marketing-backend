@@ -8,6 +8,10 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 import java.util.List;
 import java.util.Map;
+import java.sql.Types;
+import org.springframework.jdbc.support.lob.DefaultLobHandler;
+import org.springframework.jdbc.core.support.SqlLobValue;
+import org.springframework.jdbc.core.SqlParameterValue;
 
 @Component
 public class ImportStagingProcessor {
@@ -65,17 +69,94 @@ public class ImportStagingProcessor {
                 String country = (String) r.get("parsed_country");
                 String city = (String) r.get("parsed_city");
                 String segment = (String) r.get("parsed_segment");
+                // sanitize lengths to fit DB column definitions
+                email = sanitize(email, 320);
+                fn = sanitize(fn, 200);
+                ln = sanitize(ln, 200);
+                phone = sanitize(phone, 50);
+                country = sanitize(country, 100);
+                city = sanitize(city, 150);
+                segment = sanitize(segment, 200);
                 Number unsubscribed = (Number) r.get("parsed_unsubscribed");
+                Integer unsubInt = unsubscribed == null ? null : Integer.valueOf(unsubscribed.intValue());
+                DefaultLobHandler lob = new DefaultLobHandler();
+                SqlLobValue customClob = custom == null ? null : new SqlLobValue(custom, lob);
                 if("MERGE".equalsIgnoreCase(dedupe) || dedupe == null){
-                    String mergeSql = "MERGE INTO contacts t USING (SELECT ? AS user_id, ? AS email, ? AS first_name, ? AS last_name, ? AS custom_fields, ? AS phone, ? AS country, ? AS city, ? AS segment, ? AS unsubscribed FROM DUAL) s ON (t.user_id = s.user_id AND LOWER(t.email) = LOWER(s.email)) WHEN MATCHED THEN UPDATE SET t.first_name = COALESCE(s.first_name, t.first_name), t.last_name = COALESCE(s.last_name, t.last_name), t.custom_fields = COALESCE(s.custom_fields, t.custom_fields), t.phone = COALESCE(s.phone, t.phone), t.country = COALESCE(s.country, t.country), t.city = COALESCE(s.city, t.city), t.segment = COALESCE(s.segment, t.segment), t.unsubscribed = COALESCE(s.unsubscribed, t.unsubscribed), t.updated_at = SYSTIMESTAMP WHEN NOT MATCHED THEN INSERT (id, user_id, email, first_name, last_name, custom_fields, phone, country, city, segment, unsubscribed, created_at) VALUES (NULL, s.user_id, s.email, s.first_name, s.last_name, s.custom_fields, s.phone, s.country, s.city, s.segment, NVL(s.unsubscribed,0), SYSTIMESTAMP)";
-                    jdbc.update(mergeSql, userId, email, fn, ln, custom, phone, country, city, segment, unsubscribed);
+                    String mergeSql =
+                        "MERGE INTO contacts t " +
+                        "USING (SELECT ? AS user_id, ? AS email, ? AS first_name, ? AS last_name, ? AS custom_fields, ? AS phone, ? AS country, ? AS city, ? AS segment, ? AS unsubscribed FROM DUAL) s " +
+                        "ON (t.user_id = s.user_id AND LOWER(t.email) = LOWER(s.email)) " +
+                        "WHEN MATCHED THEN UPDATE SET " +
+                        " t.first_name = COALESCE(s.first_name, t.first_name), " +
+                        " t.last_name = COALESCE(s.last_name, t.last_name), " +
+                        " t.custom_fields = CASE WHEN s.custom_fields IS NOT NULL THEN s.custom_fields ELSE t.custom_fields END, " +
+                        " t.phone = COALESCE(s.phone, t.phone), " +
+                        " t.country = COALESCE(s.country, t.country), " +
+                        " t.city = COALESCE(s.city, t.city), " +
+                        " t.segment = COALESCE(s.segment, t.segment), " +
+                        " t.unsubscribed = COALESCE(s.unsubscribed, t.unsubscribed), " +
+                        " t.updated_at = SYSTIMESTAMP " +
+                        "WHEN NOT MATCHED THEN INSERT (user_id, email, first_name, last_name, custom_fields, phone, country, city, segment, unsubscribed, created_at) " +
+                        " VALUES (s.user_id, s.email, s.first_name, s.last_name, s.custom_fields, s.phone, s.country, s.city, s.segment, NVL(s.unsubscribed,0), SYSTIMESTAMP)";
+                    Object[] args = new Object[]{
+                        userId, email, fn, ln,
+                        customClob != null ? customClob : new SqlParameterValue(Types.CLOB, null),
+                        phone, country, city, segment,
+                        new SqlParameterValue(Types.INTEGER, unsubInt)
+                    };
+                    int[] types = new int[]{
+                        Types.NUMERIC, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.CLOB,
+                        Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.INTEGER
+                    };
+                    jdbc.update(mergeSql, args, types);
                 } else if("SKIP".equalsIgnoreCase(dedupe)){
                     Integer exists = jdbc.queryForObject("SELECT COUNT(1) FROM contacts WHERE user_id=? AND LOWER(email)=LOWER(?)", Integer.class, userId, email);
-                    if(exists == null || exists == 0){ jdbc.update("INSERT INTO contacts (user_id, email, first_name, last_name, custom_fields, phone, country, city, segment, unsubscribed, created_at) VALUES (?,?,?,?,?,?,?,?,?,NVL(?,0),SYSTIMESTAMP)", userId, email, fn, ln, custom, phone, country, city, segment, unsubscribed); }
+                    if(exists == null || exists == 0){
+                        String sql = "INSERT INTO contacts (user_id, email, first_name, last_name, custom_fields, phone, country, city, segment, unsubscribed, created_at) VALUES (?,?,?,?,?,?,?,?,?,NVL(?,0), SYSTIMESTAMP)";
+                        Object[] args = new Object[]{
+                            userId, email, fn, ln,
+                            customClob != null ? customClob : new SqlParameterValue(Types.CLOB, null),
+                            phone, country, city, segment,
+                            new SqlParameterValue(Types.INTEGER, unsubInt)
+                        };
+                        int[] types = new int[]{
+                            Types.NUMERIC, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.CLOB,
+                            Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.INTEGER
+                        };
+                        jdbc.update(sql, args, types);
+                    }
                 } else if("OVERWRITE".equalsIgnoreCase(dedupe)){
                     Integer exists = jdbc.queryForObject("SELECT COUNT(1) FROM contacts WHERE user_id=? AND LOWER(email)=LOWER(?)", Integer.class, userId, email);
-                    if(exists == null || exists == 0){ jdbc.update("INSERT INTO contacts (user_id, email, first_name, last_name, custom_fields, phone, country, city, segment, unsubscribed, created_at) VALUES (?,?,?,?,?,?,?,?,?,NVL(?,0),SYSTIMESTAMP)", userId, email, fn, ln, custom, phone, country, city, segment, unsubscribed); }
-                    else { jdbc.update("UPDATE contacts SET first_name=?, last_name=?, custom_fields=COALESCE(?, custom_fields), phone=COALESCE(?, phone), country=COALESCE(?, country), city=COALESCE(?, city), segment=COALESCE(?, segment), unsubscribed=COALESCE(?, unsubscribed), updated_at=SYSTIMESTAMP WHERE user_id=? AND LOWER(email)=LOWER(?)", fn, ln, custom, phone, country, city, segment, unsubscribed, userId, email); }
+                    if(exists == null || exists == 0){
+                        String sql = "INSERT INTO contacts (user_id, email, first_name, last_name, custom_fields, phone, country, city, segment, unsubscribed, created_at) VALUES (?,?,?,?,?,?,?,?,?,NVL(?,0), SYSTIMESTAMP)";
+                        Object[] args = new Object[]{
+                            userId, email, fn, ln,
+                            customClob != null ? customClob : new SqlParameterValue(Types.CLOB, null),
+                            phone, country, city, segment,
+                            new SqlParameterValue(Types.INTEGER, unsubInt)
+                        };
+                        int[] types = new int[]{
+                            Types.NUMERIC, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.CLOB,
+                            Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.INTEGER
+                        };
+                        jdbc.update(sql, args, types);
+                    } else {
+                        String sql = "UPDATE contacts SET first_name=?, last_name=?, custom_fields=CASE WHEN ? IS NOT NULL THEN ? ELSE custom_fields END, phone=COALESCE(?, phone), country=COALESCE(?, country), city=COALESCE(?, city), segment=COALESCE(?, segment), unsubscribed=COALESCE(?, unsubscribed), updated_at=SYSTIMESTAMP WHERE user_id=? AND LOWER(email)=LOWER(?)";
+                        Object[] args = new Object[]{
+                            fn, ln,
+                            customClob != null ? customClob : new SqlParameterValue(Types.CLOB, null),
+                            customClob != null ? customClob : new SqlParameterValue(Types.CLOB, null),
+                            phone, country, city, segment,
+                            new SqlParameterValue(Types.INTEGER, unsubInt),
+                            userId, email
+                        };
+                        int[] types = new int[]{
+                            Types.VARCHAR, Types.VARCHAR, Types.CLOB, Types.CLOB,
+                            Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.VARCHAR, Types.INTEGER,
+                            Types.NUMERIC, Types.VARCHAR
+                        };
+                        jdbc.update(sql, args, types);
+                    }
                 }
                 // mark staging row completed
                 jdbc.update("UPDATE import_staging SET status='COMPLETED' WHERE id=?", id);
@@ -90,5 +171,13 @@ public class ImportStagingProcessor {
     private boolean isValidEmail(String email){
         if(email == null) return false;
         return email.matches("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
+    }
+
+    // Trim, truncate to max length, convert empty to null
+    private String sanitize(String v, int max){
+        if(v == null) return null;
+        String s = v.trim();
+        if(s.isEmpty()) return null;
+        return s.length() > max ? s.substring(0, max) : s;
     }
 }

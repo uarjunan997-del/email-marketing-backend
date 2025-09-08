@@ -84,9 +84,16 @@ public class ContactService {
     }
 
     public Map<String,Object> handleImportUpload(Long userId, org.springframework.web.multipart.MultipartFile file, String mapping){
-        // Persist import_jobs row
-        jdbc.update("INSERT INTO import_jobs (user_id, filename, source, status, mapping, created_at, updated_at) VALUES (?,?,?,?,?,SYSTIMESTAMP,SYSTIMESTAMP)", userId, file.getOriginalFilename(), "UI", "PENDING", mapping);
-        Long jobId = jdbc.queryForObject("SELECT id FROM import_jobs WHERE ROWID = (SELECT MAX(ROWID) FROM import_jobs WHERE user_id=?)", Long.class, userId);
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("file is required");
+        }
+        Long jobId;
+        try {
+            jdbc.update("INSERT INTO import_jobs (user_id, filename, source, status, mapping, created_at, updated_at) VALUES (?,?,?,?,?,SYSTIMESTAMP,SYSTIMESTAMP)", userId, file.getOriginalFilename(), "UI", "PENDING", mapping);
+            jobId = jdbc.queryForObject("SELECT id FROM import_jobs WHERE ROWID = (SELECT MAX(ROWID) FROM import_jobs WHERE user_id=?)", Long.class, userId);
+        } catch (org.springframework.dao.DataAccessException dae){
+            throw dae;
+        }
 
         // Save multipart file to temp file
         try {
@@ -101,7 +108,7 @@ public class ContactService {
             jdbc.update("UPDATE import_jobs SET status=?, errors=? WHERE id=?", "FAILED", ex.getMessage(), jobId);
         }
 
-        Map<String,Object> r = new java.util.HashMap<>(); r.put("jobId", jobId); r.put("status","accepted"); return r;
+    Map<String,Object> r = new java.util.HashMap<>(); r.put("jobId", jobId); r.put("status","accepted"); return r;
     }
 
     private void processCsvToStaging(Long jobId, File tmpFile){

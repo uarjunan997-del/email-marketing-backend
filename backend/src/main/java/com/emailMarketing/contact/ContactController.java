@@ -216,6 +216,12 @@ public class ContactController {
     }
 
     private Long resolveUserId(UserDetails principal){
-        return userRepository.findByUsername(principal.getUsername()).map(u->u.getId()).orElseThrow();
+        if (principal == null) {
+            throw new org.springframework.security.access.AccessDeniedException("Unauthorized");
+        }
+        return userRepository.findByUsername(principal.getUsername())
+                .or(() -> userRepository.findByEmail(principal.getUsername()))
+                .map(com.emailMarketing.subscription.User::getId)
+                .orElseThrow(() -> new IllegalStateException("USER_NOT_FOUND"));
     }
 }
