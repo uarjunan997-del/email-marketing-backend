@@ -12,18 +12,32 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 @RequestMapping("/contacts")
 public class ContactController {
-    private final ContactService contactService; private final UserRepository userRepository;
-    public ContactController(ContactService contactService, UserRepository userRepository){this.contactService=contactService; this.userRepository=userRepository;}
+    private final ContactService contactService; 
+    private final UserRepository userRepository;
+    private final ContactWebSocketService webSocketService;
+    
+    public ContactController(ContactService contactService, UserRepository userRepository, ContactWebSocketService webSocketService){
+        this.contactService=contactService; 
+        this.userRepository=userRepository; 
+        this.webSocketService=webSocketService;
+    }
 
     public record CreateContact(@Email String email, String firstName, String lastName, String segment){}
 
     @GetMapping
-    public List<Contact> list(@AuthenticationPrincipal UserDetails principal, @RequestParam(required=false) String segment){
-        return contactService.list(resolveUserId(principal), segment);
+    public List<Contact> list(
+        @AuthenticationPrincipal UserDetails principal, 
+        @RequestParam(required=false) String segment,
+        @RequestParam(required=false) String search,
+        @RequestParam(required=false) String filters
+    ){
+        return contactService.list(resolveUserId(principal), segment, search, filters);
     }
 
     @PostMapping
@@ -31,17 +45,23 @@ public class ContactController {
         Contact c = new Contact();
         c.setUserId(resolveUserId(principal));
         c.setEmail(req.email()); c.setFirstName(req.firstName()); c.setLastName(req.lastName()); c.setSegment(req.segment());
-        return contactService.add(c);
+        Contact savedContact = contactService.add(c);
+        webSocketService.notifyContactCreated(savedContact);
+        return savedContact;
     }
 
     @PutMapping("/{id}")
     public Contact update(@AuthenticationPrincipal UserDetails principal, @PathVariable Long id, @Valid @RequestBody CreateContact req){
-        return contactService.update(resolveUserId(principal), id, req);
+        Contact updatedContact = contactService.update(resolveUserId(principal), id, req);
+        webSocketService.notifyContactUpdated(updatedContact);
+        return updatedContact;
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@AuthenticationPrincipal UserDetails principal, @PathVariable Long id, @RequestParam(required=false, defaultValue="false") boolean erase){
-        contactService.delete(resolveUserId(principal), id, erase);
+        Long userId = resolveUserId(principal);
+        contactService.delete(userId, id, erase);
+        webSocketService.notifyContactDeleted(userId, id);
         return ResponseEntity.ok(Map.of("status","ok"));
     }
 
@@ -76,18 +96,99 @@ public class ContactController {
         return contactService.getActivity(resolveUserId(principal), id);
     }
 
-    @GetMapping("/export")
-    public ResponseEntity<?> export(@AuthenticationPrincipal UserDetails principal, @RequestParam(required=false) String format){
-        String fmt = format==null?"csv":format;
-        if("csv".equalsIgnoreCase(fmt)){
-            var body = contactService.exportCsv(resolveUserId(principal));
-            return ResponseEntity.ok()
-                .header("Content-Type", "text/csv; charset=utf-8")
-                .header("Content-Disposition", "attachment; filename=contacts.csv")
-                .body(body);
+    // CSV export (streaming) - explicit mapping to avoid HttpMessageConverter issues
+    @GetMapping(value = "/export", params = "format=csv", produces = "text/csv")
+    public StreamingResponseBody exportCsv(
+        @AuthenticationPrincipal UserDetails principal,
+        @RequestParam(required=false) String fields,
+        @RequestParam(required=false) List<Long> contactIds,
+        @RequestParam(required=false) String filters,
+        HttpServletResponse response
+    ){
+        // Parse filters JSON if provided
+        List<Map<String,Object>> filterList = null;
+        if(filters != null && !filters.trim().isEmpty()) {
+            try {
+                filterList = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readValue(filters, new com.fasterxml.jackson.core.type.TypeReference<List<Map<String,Object>>>(){});
+            } catch(Exception ignored) {}
         }
-        var link = contactService.export(resolveUserId(principal), fmt);
+
+        // Set headers for file download
+        response.setHeader("Content-Disposition", "attachment; filename=contacts.csv");
+        response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        response.setHeader("Pragma", "no-cache");
+        response.setHeader("Expires", "0");
+
+        return contactService.exportCsv(resolveUserId(principal), fields, contactIds, filterList);
+    }
+
+    @GetMapping(value = "/export", produces = {"application/json"})
+    public ResponseEntity<?> export(
+        @AuthenticationPrincipal UserDetails principal, 
+        @RequestParam(required=false) String format,
+        @RequestParam(required=false) String fields,
+        @RequestParam(required=false) List<Long> contactIds,
+        @RequestParam(required=false) String filters
+    ){
+        String fmt = format==null?"xlsx":format; // default to non-csv here
+
+        // Parse filters JSON if provided
+        List<Map<String,Object>> filterList = null;
+        if(filters != null && !filters.trim().isEmpty()) {
+            try {
+                filterList = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readValue(filters, new com.fasterxml.jackson.core.type.TypeReference<List<Map<String,Object>>>(){});
+            } catch(Exception ignored) {}
+        }
+
+        // For non-CSV formats, return a link (or implement other logic)
+        var link = contactService.export(resolveUserId(principal), fmt, fields, contactIds, filterList);
         return ResponseEntity.ok(Map.of("downloadUrl", link));
+    }
+
+    // Advanced export with request body for complex filters (non-CSV only)
+    public record ExportRequest(String format, String fields, List<Long> contactIds, List<Map<String,Object>> filters){}
+
+    // CSV export via POST (streaming). Use Accept: text/csv
+    @PostMapping(value = "/export", produces = "text/csv", consumes = "application/json")
+    public StreamingResponseBody exportCsvPost(
+        @AuthenticationPrincipal UserDetails principal,
+        @RequestBody ExportRequest req,
+        HttpServletResponse response
+    ){
+        // Set headers for file download
+        response.setHeader("Content-Disposition", "attachment; filename=contacts.csv");
+        response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        response.setHeader("Pragma", "no-cache");
+        response.setHeader("Expires", "0");
+
+        return contactService.exportCsv(
+            resolveUserId(principal),
+            req.fields(),
+            req.contactIds(),
+            req.filters()
+        );
+    }
+
+    @PostMapping(value = "/export", produces = {"application/json"})
+    public ResponseEntity<?> exportAdvanced(@AuthenticationPrincipal UserDetails principal, @RequestBody ExportRequest req){
+        String fmt = req.format() == null ? "xlsx" : req.format();
+        if ("csv".equalsIgnoreCase(fmt)) {
+            // For CSV via POST use Accept: text/csv (this method returns JSON). Alternatively, use GET /contacts/export?format=csv
+            return ResponseEntity.status(415).body(Map.of(
+                "error",
+                "For CSV via POST, set Accept: text/csv (streaming). Or use GET /contacts/export?format=csv."
+            ));
+        }
+        var link = contactService.export(resolveUserId(principal), fmt, req.fields(), req.contactIds(), req.filters());
+        return ResponseEntity.ok(Map.of("downloadUrl", link));
+    }
+
+    // Export job status
+    @GetMapping("/export/{exportId}/status")
+    public Map<String,Object> getExportStatus(@AuthenticationPrincipal UserDetails principal, @PathVariable String exportId){
+        return contactService.getExportJob(resolveUserId(principal), exportId);
     }
 
     // Import job status
@@ -213,6 +314,39 @@ public class ContactController {
     @GetMapping("/lists/{listId}/preview")
     public Map<String,Object> preview(@AuthenticationPrincipal UserDetails principal, @PathVariable Long listId){
         return contactService.previewList(resolveUserId(principal), listId);
+    }
+
+    // Preview segment with filters
+    public record SegmentPreviewRequest(List<Map<String,Object>> filters){}
+    @PostMapping("/segments/preview")
+    public Map<String,Object> previewSegment(@AuthenticationPrincipal UserDetails principal, @RequestBody SegmentPreviewRequest req){
+        return contactService.previewSegment(resolveUserId(principal), req.filters());
+    }
+
+    // Bulk operations
+    public record BulkDeleteRequest(List<Long> ids, Boolean erase){}
+    @DeleteMapping("/bulk")
+    public ResponseEntity<?> bulkDelete(@AuthenticationPrincipal UserDetails principal, @RequestBody BulkDeleteRequest req){
+        Long userId = resolveUserId(principal);
+        contactService.bulkDelete(userId, req.ids(), req.erase() != null && req.erase());
+        webSocketService.notifyBulkContactsDeleted(userId, req.ids());
+        return ResponseEntity.ok(Map.of("status", "ok", "deleted", req.ids().size()));
+    }
+
+    public record BulkUpdateRequest(List<Long> ids, Map<String,Object> updates){}
+    @PutMapping("/bulk")
+    public ResponseEntity<?> bulkUpdate(@AuthenticationPrincipal UserDetails principal, @RequestBody BulkUpdateRequest req){
+        Long userId = resolveUserId(principal);
+        contactService.bulkUpdate(userId, req.ids(), req.updates());
+        webSocketService.notifyBulkContactsUpdated(userId, req.ids(), req.updates());
+        return ResponseEntity.ok(Map.of("status", "ok", "updated", req.ids().size()));
+    }
+
+    public record BulkAddToSegmentRequest(List<Long> contactIds, String segment){}
+    @PostMapping("/bulk/add-to-segment")
+    public ResponseEntity<?> bulkAddToSegment(@AuthenticationPrincipal UserDetails principal, @RequestBody BulkAddToSegmentRequest req){
+        int updated = contactService.bulkAddToSegment(resolveUserId(principal), req.contactIds(), req.segment());
+        return ResponseEntity.ok(Map.of("status", "ok", "updated", updated));
     }
 
     private Long resolveUserId(UserDetails principal){

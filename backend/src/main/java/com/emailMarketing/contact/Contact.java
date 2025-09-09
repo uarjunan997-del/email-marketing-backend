@@ -22,6 +22,7 @@ public class Contact {
     @Column(length=100) private String country;
     @Column(length=150) private String city;
     @Column(name="unsubscribed") private boolean unsubscribed=false;
+    @Column(name="suppressed") private boolean suppressed=false;
     @Lob @Column(name="custom_fields") private String customFields; // store JSON as CLOB
     @Column(name="is_deleted") private boolean isDeleted=false;
     @Column(name="delete_requested_at") private LocalDateTime deleteRequestedAt;
@@ -37,6 +38,7 @@ public class Contact {
     public String getCountry(){return country;} public void setCountry(String country){this.country=country;}
     public String getCity(){return city;} public void setCity(String city){this.city=city;}
     public boolean isUnsubscribed(){return unsubscribed;} public void setUnsubscribed(boolean unsubscribed){this.unsubscribed=unsubscribed;}
+    public boolean isSuppressed(){return suppressed;} public void setSuppressed(boolean suppressed){this.suppressed=suppressed;}
     public String getCustomFields(){return customFields;} public void setCustomFields(String customFields){this.customFields=customFields;}
     public boolean isDeleted(){return isDeleted;} public void setDeleted(boolean deleted){isDeleted = deleted;}
     public LocalDateTime getDeleteRequestedAt(){return deleteRequestedAt;} public void setDeleteRequestedAt(LocalDateTime t){this.deleteRequestedAt=t;}

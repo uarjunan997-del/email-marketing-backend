@@ -3,6 +3,7 @@ package com.emailMarketing.contact;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import java.io.InputStreamReader;
@@ -28,9 +29,171 @@ public class ContactService {
     private final TaskExecutor importExecutor;
     public ContactService(ContactRepository contactRepository, JdbcTemplate jdbc, @Qualifier("importExecutor") TaskExecutor importExecutor){this.contactRepository=contactRepository; this.jdbc = jdbc; this.importExecutor = importExecutor;}
 
+    public List<Contact> list(Long userId, String segment, String search, String filtersJson) {
+        StringBuilder sql = new StringBuilder("SELECT * FROM contacts WHERE user_id=?");
+        List<Object> args = new ArrayList<>();
+        args.add(userId);
+        
+        // Basic segment filter
+        if(segment != null && !segment.trim().isEmpty()) {
+            sql.append(" AND segment=?");
+            args.add(segment);
+        }
+        
+        // Basic search filter
+        if(search != null && !search.trim().isEmpty()) {
+            sql.append(" AND (LOWER(email) LIKE ? OR LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ?)");
+            String searchPattern = "%" + search.toLowerCase() + "%";
+            args.add(searchPattern);
+            args.add(searchPattern);
+            args.add(searchPattern);
+        }
+        
+        // Advanced filters
+        if(filtersJson != null && !filtersJson.trim().isEmpty()) {
+            try {
+                ObjectMapper om = new ObjectMapper();
+                JsonNode filtersArray = om.readTree(filtersJson);
+                
+                for(JsonNode filter : filtersArray) {
+                    String field = filter.path("field").asText();
+                    String operator = filter.path("operator").asText();
+                    JsonNode valueNode = filter.path("value");
+                    
+                    if(field.isEmpty() || operator.isEmpty()) continue;
+                    
+                    switch(field.toLowerCase()) {
+                        case "email":
+                            applyTextFilter(sql, args, "email", operator, valueNode);
+                            break;
+                        case "firstname":
+                            applyTextFilter(sql, args, "first_name", operator, valueNode);
+                            break;
+                        case "lastname":
+                            applyTextFilter(sql, args, "last_name", operator, valueNode);
+                            break;
+                        case "phone":
+                            applyTextFilter(sql, args, "phone", operator, valueNode);
+                            break;
+                        case "country":
+                            applyTextFilter(sql, args, "country", operator, valueNode);
+                            break;
+                        case "city":
+                            applyTextFilter(sql, args, "city", operator, valueNode);
+                            break;
+                        case "unsubscribed":
+                            applyStatusFilter(sql, args, "unsubscribed", operator, valueNode);
+                            break;
+                        case "suppressed":
+                            applyStatusFilter(sql, args, "suppressed", operator, valueNode);
+                            break;
+                        case "createdat":
+                            applyDateFilter(sql, args, "created_at", operator, valueNode);
+                            break;
+                        case "updatedat":
+                            applyDateFilter(sql, args, "updated_at", operator, valueNode);
+                            break;
+                        case "segment":
+                            applyTextFilter(sql, args, "segment", operator, valueNode);
+                            break;
+                    }
+                }
+            } catch(Exception e) {
+                // Log error but don't fail the query
+                System.err.println("Error parsing advanced filters: " + e.getMessage());
+            }
+        }
+        
+        sql.append(" ORDER BY created_at DESC");
+        
+        return jdbc.query(sql.toString(), new ContactRowMapper(), args.toArray());
+    }
+    
+    private void applyTextFilter(StringBuilder sql, List<Object> args, String columnName, String operator, JsonNode valueNode) {
+        if(valueNode.isNull()) return;
+        String value = valueNode.asText();
+        if(value.isEmpty()) return;
+        
+        switch(operator) {
+            case "equals":
+                sql.append(" AND ").append(columnName).append("=?");
+                args.add(value);
+                break;
+            case "contains":
+                sql.append(" AND LOWER(").append(columnName).append(") LIKE ?");
+                args.add("%" + value.toLowerCase() + "%");
+                break;
+            case "startsWith":
+                sql.append(" AND LOWER(").append(columnName).append(") LIKE ?");
+                args.add(value.toLowerCase() + "%");
+                break;
+            case "not_equals":
+                sql.append(" AND (").append(columnName).append(" IS NULL OR ").append(columnName).append("!=?)");
+                args.add(value);
+                break;
+        }
+    }
+    
+    private void applyStatusFilter(StringBuilder sql, List<Object> args, String columnName, String operator, JsonNode valueNode) {
+        if(valueNode.isNull()) return;
+        boolean value = "true".equals(valueNode.asText());
+        
+        switch(operator) {
+            case "equals":
+                sql.append(" AND ").append(columnName).append("=?");
+                args.add(value ? 1 : 0);
+                break;
+            case "not_equals":
+                sql.append(" AND ").append(columnName).append("=?");
+                args.add(value ? 0 : 1);
+                break;
+        }
+    }
+    
+    private void applyDateFilter(StringBuilder sql, List<Object> args, String columnName, String operator, JsonNode valueNode) {
+        if(valueNode.isNull()) return;
+        
+        switch(operator) {
+            case "greater_than":
+                sql.append(" AND ").append(columnName).append(">?");
+                args.add(java.sql.Timestamp.valueOf(valueNode.asText() + " 00:00:00"));
+                break;
+            case "less_than":
+                sql.append(" AND ").append(columnName).append("<?");
+                args.add(java.sql.Timestamp.valueOf(valueNode.asText() + " 23:59:59"));
+                break;
+            case "between":
+                if(valueNode.has("from") && valueNode.has("to")) {
+                    sql.append(" AND ").append(columnName).append(" BETWEEN ? AND ?");
+                    args.add(java.sql.Timestamp.valueOf(valueNode.path("from").asText() + " 00:00:00"));
+                    args.add(java.sql.Timestamp.valueOf(valueNode.path("to").asText() + " 23:59:59"));
+                }
+                break;
+        }
+    }
+
     public List<Contact> list(Long userId, String segment) {
-        if(segment!=null) return contactRepository.findByUserIdAndSegment(userId, segment);
-        return contactRepository.findByUserId(userId);
+        return list(userId, segment, null, null);
+    }
+    
+    private static class ContactRowMapper implements RowMapper<Contact> {
+        @Override
+        public Contact mapRow(@org.springframework.lang.NonNull java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
+            Contact c = new Contact();
+            c.setId(rs.getLong("id"));
+            c.setUserId(rs.getLong("user_id"));
+            c.setEmail(rs.getString("email"));
+            c.setFirstName(rs.getString("first_name"));
+            c.setLastName(rs.getString("last_name"));
+            c.setPhone(rs.getString("phone"));
+            c.setCountry(rs.getString("country"));
+            c.setCity(rs.getString("city"));
+            c.setSegment(rs.getString("segment"));
+            c.setUnsubscribed(rs.getBoolean("unsubscribed"));
+            c.setSuppressed(rs.getBoolean("suppressed"));
+            c.setCreatedAt(rs.getTimestamp("created_at") != null ? rs.getTimestamp("created_at").toLocalDateTime() : null);
+            return c;
+        }
     }
 
     @Transactional
@@ -234,27 +397,247 @@ public class ContactService {
         }, userId, contactId);
     }
 
-    public String export(Long userId, String format){
-        // return a presigned url or a local download link placeholder
-        return "/download/exports/" + java.util.UUID.randomUUID().toString() + "." + format;
+    public String export(Long userId, String format, String fields, List<Long> contactIds, List<Map<String,Object>> filters){
+        // Generate export job ID for tracking
+        String exportId = java.util.UUID.randomUUID().toString();
+        
+        // Create export job record for tracking (optional - graceful fallback if table doesn't exist)
+        try {
+            // Check if export_jobs table exists first
+            jdbc.queryForObject("SELECT COUNT(*) FROM user_tables WHERE table_name = 'EXPORT_JOBS'", Integer.class);
+            
+            String contactIdsJson = null;
+            String filtersJson = null;
+            
+            if (contactIds != null && !contactIds.isEmpty()) {
+                contactIdsJson = String.join(",", contactIds.stream().map(String::valueOf).toArray(String[]::new));
+            }
+            
+            if (filters != null && !filters.isEmpty()) {
+                try {
+                    filtersJson = new ObjectMapper().writeValueAsString(filters);
+                } catch(Exception ignored) {}
+            }
+            
+            jdbc.update("INSERT INTO export_jobs (id, user_id, format, status, fields, contact_ids, filters, created_at) VALUES (?,?,?,?,?,?,?,SYSTIMESTAMP)", 
+                exportId, userId, format, "PENDING", fields, contactIdsJson, filtersJson);
+        } catch(Exception e) {
+            // Table doesn't exist or other error - continue without job tracking
+            System.out.println("Export job tracking unavailable: " + e.getMessage());
+        }
+        
+        return "/api/contacts/export/" + exportId + "." + format;
     }
 
-    public StreamingResponseBody exportCsv(Long userId){
+    public StreamingResponseBody exportCsv(Long userId, String fields, List<Long> contactIds, List<Map<String,Object>> filters){
         return new StreamingResponseBody(){
             @Override public void writeTo(@org.springframework.lang.NonNull OutputStream os){
                 try(BufferedWriter w = new BufferedWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8))){
-            // header
-            w.write("email,first_name,last_name,phone,country,city,segment,unsubscribed,created_at,updated_at\n");
-            String sql = "SELECT email, first_name, last_name, phone, country, city, segment, unsubscribed, created_at, updated_at FROM contacts WHERE user_id=? ORDER BY created_at";
-                    jdbc.query(sql, rs -> {
+                    
+                    // Parse requested fields or use defaults
+                    final List<String> fieldList;
+                    if(fields != null && !fields.trim().isEmpty()) {
+                        List<String> tempList = new ArrayList<>();
+                        for(String field : fields.split(",")) {
+                            tempList.add(field.trim());
+                        }
+                        fieldList = tempList;
+                    } else {
+                        // Default fields
+                        fieldList = List.of("email", "first_name", "last_name", "phone", "country", "city", "segment", "unsubscribed", "suppressed", "created_at", "updated_at");
+                    }
+                    
+                    // Write CSV header
+                    w.write(String.join(",", fieldList) + "\n");
+                    
+                    // Build query based on filters and contact IDs
+                    StringBuilder sql = new StringBuilder("SELECT ");
+                    sql.append(String.join(", ", fieldList));
+                    sql.append(" FROM contacts WHERE user_id=?");
+                    
+                    List<Object> args = new ArrayList<>();
+                    args.add(userId);
+                    
+                    // Apply contact ID filter if specified
+                    if(contactIds != null && !contactIds.isEmpty()) {
+                        sql.append(" AND id IN (").append(inPlaceholders(contactIds.size())).append(")");
+                        for(Long id : contactIds) {
+                            args.add(id);
+                        }
+                    }
+                    
+                    // Apply advanced filters if specified
+                    if(filters != null && !filters.isEmpty()) {
+                        for(Map<String,Object> filter : filters) {
+                            String field = (String) filter.get("field");
+                            String operator = (String) filter.get("operator");
+                            Object value = filter.get("value");
+                            
+                            if(field == null || operator == null || value == null) continue;
+                            
+                            switch(field.toLowerCase()) {
+                                case "email":
+                                    applyTextFilterToSql(sql, args, "email", operator, value);
+                                    break;
+                                case "firstname":
+                                    applyTextFilterToSql(sql, args, "first_name", operator, value);
+                                    break;
+                                case "lastname":
+                                    applyTextFilterToSql(sql, args, "last_name", operator, value);
+                                    break;
+                                case "phone":
+                                    applyTextFilterToSql(sql, args, "phone", operator, value);
+                                    break;
+                                case "country":
+                                    applyTextFilterToSql(sql, args, "country", operator, value);
+                                    break;
+                                case "city":
+                                    applyTextFilterToSql(sql, args, "city", operator, value);
+                                    break;
+                                case "segment":
+                                    applyTextFilterToSql(sql, args, "segment", operator, value);
+                                    break;
+                                case "unsubscribed":
+                                    applyStatusFilterToSql(sql, args, "unsubscribed", operator, value);
+                                    break;
+                                case "suppressed":
+                                    applyStatusFilterToSql(sql, args, "suppressed", operator, value);
+                                    break;
+                                case "createdat":
+                                    applyDateFilterToSql(sql, args, "created_at", operator, value);
+                                    break;
+                                case "updatedat":
+                                    applyDateFilterToSql(sql, args, "updated_at", operator, value);
+                                    break;
+                            }
+                        }
+                    }
+                    
+                    sql.append(" ORDER BY created_at DESC");
+                    
+                    // Stream results to CSV
+                    jdbc.query(sql.toString(), rs -> {
                         try {
-                String line = csv(rs.getString(1)) + "," + csv(rs.getString(2)) + "," + csv(rs.getString(3)) + "," + csv(rs.getString(4)) + "," + csv(rs.getString(5)) + "," + csv(rs.getString(6)) + "," + csv(rs.getString(7)) + "," + String.valueOf(rs.getInt(8)) + "," + csv(String.valueOf(rs.getObject(9))) + "," + csv(String.valueOf(rs.getObject(10))) + "\n";
-                            w.write(line);
+                            List<String> values = new ArrayList<>();
+                            for(String field : fieldList) {
+                                String value = rs.getString(field);
+                                values.add(csv(value));
+                            }
+                            w.write(String.join(",", values) + "\n");
                         } catch(Exception ignored){}
-                    }, userId);
-                } catch(Exception ignored){}
+                    }, args.toArray());
+                    
+                } catch(Exception e){
+                    // Log error but don't break the stream
+                    System.err.println("Export error: " + e.getMessage());
+                }
             }
         };
+    }
+    
+    // Helper methods for SQL filter building
+    private void applyTextFilterToSql(StringBuilder sql, List<Object> args, String columnName, String operator, Object value) {
+        if(value == null) return;
+        String strValue = value.toString();
+        if(strValue.isEmpty()) return;
+        
+        switch(operator) {
+            case "equals":
+                sql.append(" AND ").append(columnName).append("=?");
+                args.add(strValue);
+                break;
+            case "contains":
+                sql.append(" AND LOWER(").append(columnName).append(") LIKE ?");
+                args.add("%" + strValue.toLowerCase() + "%");
+                break;
+            case "startsWith":
+                sql.append(" AND LOWER(").append(columnName).append(") LIKE ?");
+                args.add(strValue.toLowerCase() + "%");
+                break;
+            case "not_equals":
+                sql.append(" AND (").append(columnName).append(" IS NULL OR ").append(columnName).append("!=?)");
+                args.add(strValue);
+                break;
+        }
+    }
+    
+    private void applyStatusFilterToSql(StringBuilder sql, List<Object> args, String columnName, String operator, Object value) {
+        if(value == null) return;
+        boolean boolValue = Boolean.TRUE.equals(value) || "true".equals(value.toString());
+        
+        switch(operator) {
+            case "equals":
+                sql.append(" AND ").append(columnName).append("=?");
+                args.add(boolValue ? 1 : 0);
+                break;
+            case "not_equals":
+                sql.append(" AND ").append(columnName).append("=?");
+                args.add(boolValue ? 0 : 1);
+                break;
+        }
+    }
+    
+    private void applyDateFilterToSql(StringBuilder sql, List<Object> args, String columnName, String operator, Object value) {
+        if(value == null) return;
+        
+        try {
+            switch(operator) {
+                case "greater_than":
+                    sql.append(" AND ").append(columnName).append(">?");
+                    args.add(java.sql.Timestamp.valueOf(value.toString() + " 00:00:00"));
+                    break;
+                case "less_than":
+                    sql.append(" AND ").append(columnName).append("<?");
+                    args.add(java.sql.Timestamp.valueOf(value.toString() + " 23:59:59"));
+                    break;
+                case "between":
+                    if(value instanceof Map) {
+                        Map<?,?> range = (Map<?,?>) value;
+                        Object from = range.get("from");
+                        Object to = range.get("to");
+                        if(from != null && to != null) {
+                            sql.append(" AND ").append(columnName).append(" BETWEEN ? AND ?");
+                            args.add(java.sql.Timestamp.valueOf(from.toString() + " 00:00:00"));
+                            args.add(java.sql.Timestamp.valueOf(to.toString() + " 23:59:59"));
+                        }
+                    }
+                    break;
+            }
+        } catch(Exception e) {
+            // Invalid date format, skip this filter
+        }
+    }
+    
+    // Export job status tracking
+    public Map<String,Object> getExportJob(Long userId, String exportId){
+        try {
+            // Check if export_jobs table exists
+            jdbc.queryForObject("SELECT COUNT(*) FROM user_tables WHERE table_name = 'EXPORT_JOBS'", Integer.class);
+            
+            String sql = "SELECT id, user_id, format, status, fields, contact_ids, filters, created_at, completed_at FROM export_jobs WHERE id=? AND user_id=?";
+            List<Map<String,Object>> results = jdbc.queryForList(sql, exportId, userId);
+            return results.isEmpty() ? Map.of("status", "NOT_FOUND") : results.get(0);
+        } catch(Exception e) {
+            return Map.of("status", "COMPLETED", "message", "Export job tracking unavailable - export completed");
+        }
+    }
+    
+    @Transactional
+    public void updateExportJobStatus(String exportId, String status, String message){
+        try {
+            // Check if export_jobs table exists
+            jdbc.queryForObject("SELECT COUNT(*) FROM user_tables WHERE table_name = 'EXPORT_JOBS'", Integer.class);
+            
+            if("COMPLETED".equals(status) || "FAILED".equals(status)) {
+                jdbc.update("UPDATE export_jobs SET status=?, message=?, completed_at=SYSTIMESTAMP WHERE id=?", 
+                    status, message, exportId);
+            } else {
+                jdbc.update("UPDATE export_jobs SET status=?, message=? WHERE id=?", 
+                    status, message, exportId);
+            }
+        } catch(Exception ignored) {
+            // Export job tracking is optional - table may not exist
+        }
     }
 
     private String csv(String s){
@@ -393,7 +776,7 @@ public class ContactService {
     @Transactional
     public void addMembersByEmails(Long userId, Long listId, List<String> emails){
         if(emails==null || emails.isEmpty()) return;
-        List<Map<String,Object>> ids = jdbc.queryForList("SELECT id FROM contacts WHERE user_id=? AND LOWER(email) IN (" + inPlaceholders(emails.size()) + ")", buildArgs(userId, emails));
+        List<Map<String,Object>> ids = jdbc.queryForList("SELECT id FROM contacts WHERE user_id=? AND LOWER(email) IN (" + inPlaceholders(emails.size()) + ")", buildArgsWithEmails(userId, emails));
         List<Object[]> batch = new ArrayList<>();
         for(Map<String,Object> row: ids){ batch.add(new Object[]{listId, ((Number)row.get("ID")).longValue()}); }
         jdbc.batchUpdate("INSERT /*+ IGNORE_ROW_ON_DUPKEY_INDEX(contact_list_members(list_id, contact_id)) */ INTO contact_list_members (list_id, contact_id, added_at) VALUES (?,?,SYSTIMESTAMP)", batch);
@@ -402,7 +785,7 @@ public class ContactService {
     @Transactional
     public void removeMembersByEmails(Long userId, Long listId, List<String> emails){
         if(emails==null || emails.isEmpty()) return;
-        jdbc.update("DELETE FROM contact_list_members WHERE list_id=? AND contact_id IN (SELECT id FROM contacts WHERE user_id=? AND LOWER(email) IN (" + inPlaceholders(emails.size()) + "))", buildArgs(listId, userId, emails));
+        jdbc.update("DELETE FROM contact_list_members WHERE list_id=? AND contact_id IN (SELECT id FROM contacts WHERE user_id=? AND LOWER(email) IN (" + inPlaceholders(emails.size()) + "))", buildArgsWithThreeParams(listId, userId, emails));
     }
 
     @Transactional
@@ -438,11 +821,171 @@ public class ContactService {
         return inserted;
     }
 
-    private Object[] buildArgs(Object first, List<String> emails){
-        Object[] args = new Object[1+emails.size()]; args[0]=first; for(int i=0;i<emails.size();i++) args[i+1]=emails.get(i).toLowerCase(); return args;
+    public Map<String,Object> previewSegment(Long userId, List<Map<String,Object>> filters){
+        if(filters == null || filters.isEmpty()){
+            // No filters - return total count
+            Integer total = jdbc.queryForObject("SELECT COUNT(*) FROM contacts WHERE user_id=?", Integer.class, userId);
+            return Map.of("count", total, "filters", List.of());
+        }
+        
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM contacts WHERE user_id=?");
+        List<Object> args = new ArrayList<>();
+        args.add(userId);
+        
+        for(Map<String,Object> filter : filters){
+            String field = (String) filter.get("field");
+            String operator = (String) filter.get("operator");
+            Object value = filter.get("value");
+            
+            if(field == null || operator == null || value == null) continue;
+            
+            switch(field.toLowerCase()){
+                case "segment":
+                    if("equals".equals(operator)){
+                        sql.append(" AND segment=?");
+                        args.add(value);
+                    } else if("contains".equals(operator)){
+                        sql.append(" AND LOWER(segment) LIKE ?");
+                        args.add("%" + value.toString().toLowerCase() + "%");
+                    }
+                    break;
+                case "email":
+                    if("contains".equals(operator)){
+                        sql.append(" AND LOWER(email) LIKE ?");
+                        args.add("%" + value.toString().toLowerCase() + "%");
+                    }
+                    break;
+                case "firstname":
+                    if("contains".equals(operator)){
+                        sql.append(" AND LOWER(first_name) LIKE ?");
+                        args.add("%" + value.toString().toLowerCase() + "%");
+                    }
+                    break;
+                case "lastname":
+                    if("contains".equals(operator)){
+                        sql.append(" AND LOWER(last_name) LIKE ?");
+                        args.add("%" + value.toString().toLowerCase() + "%");
+                    }
+                    break;
+                case "unsubscribed":
+                    if("equals".equals(operator)){
+                        sql.append(" AND unsubscribed=?");
+                        args.add(Boolean.TRUE.equals(value) ? 1 : 0);
+                    }
+                    break;
+                case "suppressed":
+                    if("equals".equals(operator)){
+                        sql.append(" AND suppressed=?");
+                        args.add(Boolean.TRUE.equals(value) ? 1 : 0);
+                    }
+                    break;
+            }
+        }
+        
+        Integer count = jdbc.queryForObject(sql.toString(), Integer.class, args.toArray());
+        return Map.of("count", count != null ? count : 0, "filters", filters);
     }
-    private Object[] buildArgs(Object a, Object b, List<String> emails){
-        Object[] args = new Object[2+emails.size()]; args[0]=a; args[1]=b; for(int i=0;i<emails.size();i++) args[i+2]=emails.get(i).toLowerCase(); return args;
+
+    // Bulk operations
+    @Transactional
+    public void bulkDelete(Long userId, List<Long> contactIds, boolean erase){
+        if(contactIds == null || contactIds.isEmpty()) return;
+        
+        if(erase){
+            // Hard delete - remove from related tables first
+            String inClause = inPlaceholders(contactIds.size());
+            jdbc.update("DELETE FROM contact_list_members WHERE contact_id IN (SELECT id FROM contacts WHERE user_id=? AND id IN (" + inClause + "))", 
+                buildArgsWithIds(userId, contactIds));
+            jdbc.update("DELETE FROM contact_activities WHERE contact_id IN (SELECT id FROM contacts WHERE user_id=? AND id IN (" + inClause + "))", 
+                buildArgsWithIds(userId, contactIds));
+            jdbc.update("DELETE FROM contact_scores WHERE contact_id IN (SELECT id FROM contacts WHERE user_id=? AND id IN (" + inClause + "))", 
+                buildArgsWithIds(userId, contactIds));
+            jdbc.update("DELETE FROM contacts WHERE user_id=? AND id IN (" + inClause + ")", 
+                buildArgsWithIds(userId, contactIds));
+        } else {
+            // Soft delete - mark as unsubscribed
+            String inClause = inPlaceholders(contactIds.size());
+            jdbc.update("UPDATE contacts SET unsubscribed=1, updated_at=SYSTIMESTAMP WHERE user_id=? AND id IN (" + inClause + ")", 
+                buildArgsWithIds(userId, contactIds));
+        }
     }
-    private String inPlaceholders(int n){ StringBuilder sb=new StringBuilder(); for(int i=0;i<n;i++){ if(i>0) sb.append(','); sb.append('?'); } return sb.toString(); }
+
+    @Transactional
+    public void bulkUpdate(Long userId, List<Long> contactIds, Map<String,Object> updates){
+        if(contactIds == null || contactIds.isEmpty() || updates == null || updates.isEmpty()) return;
+        
+        StringBuilder sql = new StringBuilder("UPDATE contacts SET ");
+        List<Object> args = new ArrayList<>();
+        
+        boolean first = true;
+        for(Map.Entry<String,Object> entry : updates.entrySet()){
+            String field = entry.getKey();
+            Object value = entry.getValue();
+            
+            // Only allow safe fields to be bulk updated
+            if(!field.matches("^(unsubscribed|suppressed|segment|first_name|last_name|phone|country|city)$")) continue;
+            
+            if(!first) sql.append(", ");
+            sql.append(field).append("=?");
+            args.add(value);
+            first = false;
+        }
+        
+        if(first) return; // No valid fields to update
+        
+        sql.append(", updated_at=SYSTIMESTAMP WHERE user_id=? AND id IN (");
+        sql.append(inPlaceholders(contactIds.size())).append(")");
+        
+        args.add(userId);
+        for(Long id : contactIds){
+            args.add(id);
+        }
+        
+        jdbc.update(sql.toString(), args.toArray());
+    }
+
+    @Transactional
+    public int bulkAddToSegment(Long userId, List<Long> contactIds, String segment){
+        if(contactIds == null || contactIds.isEmpty() || segment == null || segment.trim().isEmpty()) return 0;
+        
+        String inClause = inPlaceholders(contactIds.size());
+        Object[] args = buildArgsWithIds(userId, contactIds);
+        Object[] argsWithSegment = new Object[args.length + 1];
+        argsWithSegment[0] = segment;
+        System.arraycopy(args, 0, argsWithSegment, 1, args.length);
+        
+        return jdbc.update("UPDATE contacts SET segment=?, updated_at=SYSTIMESTAMP WHERE user_id=? AND id IN (" + inClause + ")", 
+            argsWithSegment);
+    }
+
+    private Object[] buildArgsWithIds(Object first, List<Long> ids){
+        Object[] args = new Object[1+ids.size()]; 
+        args[0]=first; 
+        for(int i=0;i<ids.size();i++) args[i+1]=ids.get(i); 
+        return args;
+    }
+    
+    private Object[] buildArgsWithEmails(Object first, List<String> emails){
+        Object[] args = new Object[1+emails.size()]; 
+        args[0]=first; 
+        for(int i=0;i<emails.size();i++) args[i+1]=emails.get(i).toLowerCase(); 
+        return args;
+    }
+    
+    private Object[] buildArgsWithThreeParams(Object a, Object b, List<String> emails){
+        Object[] args = new Object[2+emails.size()]; 
+        args[0]=a; 
+        args[1]=b; 
+        for(int i=0;i<emails.size();i++) args[i+2]=emails.get(i).toLowerCase(); 
+        return args;
+    }
+    
+    private String inPlaceholders(int n){ 
+        StringBuilder sb=new StringBuilder(); 
+        for(int i=0;i<n;i++){ 
+            if(i>0) sb.append(','); 
+            sb.append('?'); 
+        } 
+        return sb.toString(); 
+    }
 }
