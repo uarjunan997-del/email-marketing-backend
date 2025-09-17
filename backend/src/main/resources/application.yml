@@ -23,13 +23,24 @@ spring:
     locations: classpath:db/migration
   baseline-on-migrate: true
   mail:
-    host: ${SMTP_HOST:localhost}
-    port: ${SMTP_PORT:25}
-    username: ${SMTP_USER:}
-    password: ${SMTP_PASS:}
+    # OCI Email Delivery SMTP (override via env vars in production)
+    host: ${SMTP_HOST:smtp.email.${OCI_REGION:ap-hyderabad-1}.oci.oraclecloud.com}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USER:ocid1.user.oc1..aaaaaaaa544nuaarbgcp3jojdmtugvy7x5uztswtrk2yko36ubhdpcf6ph3q@ocid1.tenancy.oc1..aaaaaaaabui5ysesbenyvlhqdcrhyla3elkbz2hvfjmxtzut724knwsgfmza.ht.com}        # OCI SMTP credential user (ocid or generated username)
+    password: dg{2kBArnGHx(ZL2Uz(1      # OCI SMTP credential password
     properties:
-      mail.smtp.auth: false
+      mail.smtp.auth: true
       mail.smtp.starttls.enable: true
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
+
+oracle:
+  email:
+    delivery:
+      enabled: ${OCI_EMAIL_ENABLED:true}
+      sender: ${OCI_EMAIL_SENDER:support@resumeneuron.com}   # Verified sender address/domain in OCI
+      region: ${OCI_REGION:ap-hyderabad-1}                 # Region for instrumentation header
 
 security:
   jwt:
@@ -117,3 +128,7 @@ logging:
   level:
     org.springframework.security: INFO
     org.hibernate.SQL: WARN
+
+ai:
+  python:
+    base-url: ${PY_AI_BASE_URL:http://localhost:8000}

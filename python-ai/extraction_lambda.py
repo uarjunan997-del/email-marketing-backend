@@ -6,9 +6,11 @@ from pdf2image import convert_from_path
 from groq import Groq
 from PIL import Image
 import numpy as np, cv2
+from env_loader import load_env
 
 logging.basicConfig(level=logging.INFO)
-client = Groq(api_key=os.environ.get("OPENAI_API_KEY"))
+load_env()
+client = Groq(api_key=os.environ.get("GROQ_API_KEY") or os.environ.get("OPENAI_API_KEY"))
 
 LEGEND_TRIGGER_KEYWORDS=["legends","legend:","end of statement"]
 

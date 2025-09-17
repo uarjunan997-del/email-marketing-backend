@@ -1,5 +1,74 @@
 package com.emailMarketing.template.model;
 
-import jakarta.persistence.*; import java.time.LocalDateTime;
-@Entity @Table(name="template_assets", indexes=@Index(name="idx_template_assets_template", columnList="template_id"))
-public class TemplateAsset { @Id @GeneratedValue(strategy=GenerationType.IDENTITY) private Long id; private Long templateId; private String fileName; private String contentType; private String storageKey; private Long sizeBytes; private LocalDateTime createdAt = LocalDateTime.now(); public Long getId(){return id;} public void setId(Long id){this.id=id;} public Long getTemplateId(){return templateId;} public void setTemplateId(Long templateId){this.templateId=templateId;} public String getFileName(){return fileName;} public void setFileName(String fileName){this.fileName=fileName;} public String getContentType(){return contentType;} public void setContentType(String contentType){this.contentType=contentType;} public String getStorageKey(){return storageKey;} public void setStorageKey(String storageKey){this.storageKey=storageKey;} public Long getSizeBytes(){return sizeBytes;} public void setSizeBytes(Long sizeBytes){this.sizeBytes=sizeBytes;} public LocalDateTime getCreatedAt(){return createdAt;} public void setCreatedAt(LocalDateTime createdAt){this.createdAt=createdAt;} }
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "template_assets", indexes = @Index(name = "idx_template_assets_template", columnList = "template_id"))
+public class TemplateAsset {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private Long templateId;
+    private String fileName;
+    private String contentType;
+    private String storageKey;
+    private Long sizeBytes;
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public Long getTemplateId() {
+        return templateId;
+    }
+
+    public void setTemplateId(Long templateId) {
+        this.templateId = templateId;
+    }
+
+    public String getFileName() {
+        return fileName;
+    }
+
+    public void setFileName(String fileName) {
+        this.fileName = fileName;
+    }
+
+    public String getContentType() {
+        return contentType;
+    }
+
+    public void setContentType(String contentType) {
+        this.contentType = contentType;
+    }
+
+    public String getStorageKey() {
+        return storageKey;
+    }
+
+    public void setStorageKey(String storageKey) {
+        this.storageKey = storageKey;
+    }
+
+    public Long getSizeBytes() {
+        return sizeBytes;
+    }
+
+    public void setSizeBytes(Long sizeBytes) {
+        this.sizeBytes = sizeBytes;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+}

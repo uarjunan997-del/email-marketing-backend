@@ -96,5 +96,12 @@ GrapesJS integrated (newsletter preset) replacing Unlayer gradually. Add MJML mo
 * Add OpenAPI annotations & generate spec for frontend consumption.
 * Expand test coverage (service + controller tests for new endpoints).
 
+## API Surface (Summary)
+As of 2025-09-09, the backend exposes 136 REST endpoints in total.
+- Method-level mappings counted via Spring annotations: `@GetMapping`, `@PostMapping`, `@PutMapping`, `@PatchMapping`, `@DeleteMapping` across all controllers.
+- Domains include: Auth, Contacts, Campaigns, Templates (CRUD, versions, variables, assets, preview/test-send/AI draft), ROI, Dashboard, Time-series analytics, Deliverability (bounces/complaints/unsubscribe), Event ingest, Webhooks (ecommerce), Attribution, Tracking.
+
+Note: This number changes as features evolve; re-count with a code search for the above annotations to update.
+
 ## License
 Internal reuse. Add explicit license if distributing externally.

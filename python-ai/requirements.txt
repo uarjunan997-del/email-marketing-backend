@@ -5,3 +5,7 @@ groq
 opencv-python
 numpy
 Pillow
+fastapi
+uvicorn
+pydantic
+python-dotenv
