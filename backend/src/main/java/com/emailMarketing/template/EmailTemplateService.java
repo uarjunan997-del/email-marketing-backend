@@ -4,14 +4,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
 import com.emailMarketing.template.repo.*;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.emailMarketing.template.model.*;
 import org.jsoup.Jsoup;
 import org.jsoup.safety.Safelist;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import com.emailMarketing.storage.OciObjectStorageService;
+import java.time.LocalDateTime;
 
 @Service
 public class EmailTemplateService {
@@ -21,9 +21,12 @@ public class EmailTemplateService {
     private final TemplateRenderingService renderer;
     private final TemplateCategoryRepository categoryRepo;
     private final TemplateAssetRepository assetRepo;
-    private final MjmlRenderService mjmlRenderService;
     @Autowired(required = false)
     private OciObjectStorageService ociStorage;
+
+    @Value("${app.assets.read-url-default-expiry-minutes:43200}")
+    private int defaultAssetReadExpiryMinutes;
+    private MjmlRenderService mjmlRenderService;
 
     public EmailTemplateService(EmailTemplateRepository repo, TemplateVersionRepository versionRepo,
             TemplateVariableRepository variableRepo, TemplateRenderingService renderer,
@@ -103,20 +106,14 @@ public class EmailTemplateService {
     public EmailTemplate save(EmailTemplate t)   {
         boolean isNew = t.getId() == null;
         // If mjmlSource present, render before saving html snapshot
-        // if (t.getMjmlSource() != null && !t.getMjmlSource().isBlank()) {
-        //     String rendered = mjmlRenderService.renderMjml(t.getMjmlSource());
-        //     t.setLastRenderedHtml(rendered);
-        //     var node = PureJavaMjmlToEasyJsonExtended.convert(rendered);
-        //     try {
-        //         t.setEasyEmailDesignJson(new ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(node));
-        //     } catch (JsonProcessingException e) {
-        //         // TODO Auto-generated catch block
-        //         e.printStackTrace();
-        //     }
-        //     // If html not manually set, use rendered output
-        //     // if (t.getHtml() == null || t.getHtml().isBlank())
-        //         t.setHtml(rendered);
-        // }
+        if (t.getMjmlSource() != null && !t.getMjmlSource().isBlank()) {
+            String rendered = mjmlRenderService.renderMjml(t.getMjmlSource());
+            t.setLastRenderedHtml(rendered);
+            
+            // If html not manually set, use rendered output
+            // if (t.getHtml() == null || t.getHtml().isBlank())
+                t.setHtml(rendered);
+        }
         EmailTemplate saved = repo.save(t);
         createVersionIfNeeded(saved, isNew);
         if (isNew) {
@@ -247,6 +244,12 @@ public class EmailTemplateService {
                 byte[] bytes = file.getBytes();
                 ociStorage.putBytes(key, bytes, file.getContentType());
                 a.setStorageKey(key);
+                // Pre-generate long-lived read URL (default 30 days) and cache in DB
+                try {
+                    String url = ociStorage.generateReadUrl(key, defaultAssetReadExpiryMinutes);
+                    a.setCachedReadUrl(url);
+                    a.setCachedReadExpiresAt(LocalDateTime.now().plusMinutes(defaultAssetReadExpiryMinutes));
+                } catch (Exception ignored) { }
             } else {
                 // Fallback placeholder when no object storage configured
                 a.setStorageKey("local://" + key);
@@ -272,15 +275,28 @@ public class EmailTemplateService {
         if (!Objects.equals(asset.getTemplateId(), templateId)) return Optional.empty();
         String key = asset.getStorageKey();
         if (key == null || key.isBlank()) return Optional.empty();
-        // Only support signed URL for real object storage keys
-        if (ociStorage != null && ociStorage.isEnabled() && !key.startsWith("local://")) {
-            try {
-                return Optional.of(ociStorage.generateReadUrl(key, expiryMinutes));
-            } catch (Exception e) {
-                return Optional.empty();
+        // Local storage or disabled: no signed URL available
+        if (ociStorage == null || !ociStorage.isEnabled() || key.startsWith("local://")) {
+            return Optional.empty();
+        }
+        // Prefer cached URL if still valid; regenerate otherwise using default (30 days)
+        LocalDateTime now = LocalDateTime.now();
+        if (asset.getCachedReadUrl() != null && asset.getCachedReadExpiresAt() != null) {
+            // Grace window of 60 seconds to avoid edge expiry at client
+            if (asset.getCachedReadExpiresAt().isAfter(now.plusSeconds(60))) {
+                return Optional.of(asset.getCachedReadUrl());
             }
         }
-        return Optional.empty();
+        int minutes = defaultAssetReadExpiryMinutes; // ignore requested shorter expiries; we want stable cache
+        try {
+            String newUrl = ociStorage.generateReadUrl(key, minutes);
+            asset.setCachedReadUrl(newUrl);
+            asset.setCachedReadExpiresAt(now.plusMinutes(minutes));
+            assetRepo.save(asset);
+            return Optional.of(newUrl);
+        } catch (Exception e) {
+            return Optional.empty();
+        }
     }
 
     /**

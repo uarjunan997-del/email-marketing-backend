@@ -117,7 +117,7 @@ public class AiController {
                         effective = templateService.addAssetToFolder(templateId, folder, file);
                         existingAssetsByFolderAndFile.put(lookupKey, effective);
                     }
-                    String url = effective.getId() != null ? templateService.generateAssetReadUrl(templateId, effective.getId(), 15).orElse(effective.getStorageKey()) : effective.getStorageKey();
+                    String url = effective.getId() != null ? templateService.generateAssetReadUrl(templateId, effective.getId(), 0).orElse(effective.getStorageKey()) : effective.getStorageKey();
                     if (url != null) assetUrls.put(assetName, url);
                     if ("logo".equalsIgnoreCase(assetType) && firstLogoUrl == null) {
                         firstLogoUrl = url;
@@ -322,8 +322,8 @@ public class AiController {
 
     GeneratedTemplate tpl = new GeneratedTemplate(
         String.valueOf(template != null ? template.getId() : UUID.randomUUID()),
-        template.getHtml(),
-        template.getMjmlSource(),
+        html,
+        mjml,
         "",
         "",
         assetUrls,

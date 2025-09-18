@@ -19,15 +19,18 @@ public class EmailTemplateController {
     private final EmailTemplateService service;
     private final UserRepository userRepository;
     private final VariableAnalysisService variableAnalysisService;
+    private final VariableBindingService variableBindingService;
     private final com.emailMarketing.ai.GroqAiService groqAiService;
 
     public EmailTemplateController(EmailTemplateService service, UserRepository userRepository,
             VariableAnalysisService variableAnalysisService,
-            com.emailMarketing.ai.GroqAiService groqAiService) {
+            com.emailMarketing.ai.GroqAiService groqAiService,
+            VariableBindingService variableBindingService) {
         this.service = service;
         this.userRepository = userRepository;
         this.variableAnalysisService = variableAnalysisService;
         this.groqAiService = groqAiService;
+        this.variableBindingService = variableBindingService;
     }
 
     public record TemplateRequest(String name, String html, String mjmlSource, Long categoryId, String description, String tags,
@@ -54,11 +57,45 @@ public class EmailTemplateController {
     public record VariableResponse(Long id, String name, String defaultValue, boolean required, boolean system) {
     }
 
-    public record AssetResponse(Long id, String fileName, String contentType, Long sizeBytes, String storageKey) {
+    // Variable Binding DTOs
+    public record VariableBindingRequest(String varName, String sourceType, String sourceKey, String defaultValue, String transformJson) {}
+    public record VariableBindingResponse(Long id, String varName, String sourceType, String sourceKey, String defaultValue) {}
+
+    public record AssetResponse(Long id, String fileName, String contentType, Long sizeBytes, String storageKey, String cachedReadUrl, java.time.LocalDateTime cachedReadExpiresAt) {
     }
     public record AssetUrlResponse(String url) {}
 
     public record AIDraftRequest(String prompt, String tone, String audience, String callToAction) {
+    }
+
+    // Variable Bindings
+    @GetMapping("/{id}/variable-bindings")
+    public List<VariableBindingResponse> listBindings(@AuthenticationPrincipal UserDetails principal, @PathVariable Long id){
+        EmailTemplate t = service.get(id).orElseThrow();
+        if (!t.getUserId().equals(resolveUserId(principal)))
+            throw new org.springframework.security.access.AccessDeniedException("Forbidden");
+        return variableBindingService.list(id).stream()
+                .map(b -> new VariableBindingResponse(b.getId(), b.getVarName(), b.getSourceType().name(), b.getSourceKey(), b.getDefaultValue()))
+                .toList();
+    }
+
+    @PutMapping("/{id}/variable-bindings")
+    public VariableBindingResponse upsertBinding(@AuthenticationPrincipal UserDetails principal, @PathVariable Long id,
+                                                 @RequestBody VariableBindingRequest req){
+        EmailTemplate t = service.get(id).orElseThrow();
+        if (!t.getUserId().equals(resolveUserId(principal)))
+            throw new org.springframework.security.access.AccessDeniedException("Forbidden");
+        var sourceType = com.emailMarketing.template.model.TemplateVariableBinding.SourceType.valueOf(req.sourceType());
+        var saved = variableBindingService.upsert(id, req.varName(), sourceType, req.sourceKey(), req.defaultValue(), req.transformJson());
+        return new VariableBindingResponse(saved.getId(), saved.getVarName(), saved.getSourceType().name(), saved.getSourceKey(), saved.getDefaultValue());
+    }
+
+    @DeleteMapping("/{id}/variable-bindings/{bindingId}")
+    public void deleteBinding(@AuthenticationPrincipal UserDetails principal, @PathVariable Long id, @PathVariable Long bindingId){
+        EmailTemplate t = service.get(id).orElseThrow();
+        if (!t.getUserId().equals(resolveUserId(principal)))
+            throw new org.springframework.security.access.AccessDeniedException("Forbidden");
+        variableBindingService.delete(id, bindingId);
     }
 
     public record AIDraftResponse(String html, List<String> variables, String model) {
@@ -273,8 +310,10 @@ public class EmailTemplateController {
         EmailTemplate t = service.get(id).orElseThrow();
         if (!t.getUserId().equals(resolveUserId(principal)))
             throw new org.springframework.security.access.AccessDeniedException("Forbidden");
-        return service.assets(id).stream().map(a -> new AssetResponse(a.getId(), a.getFileName(), a.getContentType(),
-                a.getSizeBytes(), a.getStorageKey())).toList();
+        return service.assets(id).stream().map(a -> new AssetResponse(
+                a.getId(), a.getFileName(), a.getContentType(), a.getSizeBytes(), a.getStorageKey(),
+                a.getCachedReadUrl(), a.getCachedReadExpiresAt()))
+                .toList();
     }
 
     @PostMapping("/{id}/assets")
@@ -284,7 +323,7 @@ public class EmailTemplateController {
         if (!t.getUserId().equals(resolveUserId(principal)))
             throw new org.springframework.security.access.AccessDeniedException("Forbidden");
         var a = service.addAsset(id, file);
-        return new AssetResponse(a.getId(), a.getFileName(), a.getContentType(), a.getSizeBytes(), a.getStorageKey());
+        return new AssetResponse(a.getId(), a.getFileName(), a.getContentType(), a.getSizeBytes(), a.getStorageKey(), a.getCachedReadUrl(), a.getCachedReadExpiresAt());
     }
 
     // Generate a temporary read URL for an asset
@@ -310,7 +349,7 @@ public class EmailTemplateController {
         if (!t.getUserId().equals(resolveUserId(principal)))
             throw new org.springframework.security.access.AccessDeniedException("Forbidden");
         var a = service.addAssetToFolder(id, "images", file);
-        return new AssetResponse(a.getId(), a.getFileName(), a.getContentType(), a.getSizeBytes(), a.getStorageKey());
+        return new AssetResponse(a.getId(), a.getFileName(), a.getContentType(), a.getSizeBytes(), a.getStorageKey(), a.getCachedReadUrl(), a.getCachedReadExpiresAt());
     }
 
     @PostMapping("/{id}/assets/logos")
@@ -320,7 +359,7 @@ public class EmailTemplateController {
         if (!t.getUserId().equals(resolveUserId(principal)))
             throw new org.springframework.security.access.AccessDeniedException("Forbidden");
         var a = service.addAssetToFolder(id, "logos", file);
-        return new AssetResponse(a.getId(), a.getFileName(), a.getContentType(), a.getSizeBytes(), a.getStorageKey());
+        return new AssetResponse(a.getId(), a.getFileName(), a.getContentType(), a.getSizeBytes(), a.getStorageKey(), a.getCachedReadUrl(), a.getCachedReadExpiresAt());
     }
 
     @PostMapping("/{id}/assets/brand")
@@ -330,7 +369,7 @@ public class EmailTemplateController {
         if (!t.getUserId().equals(resolveUserId(principal)))
             throw new org.springframework.security.access.AccessDeniedException("Forbidden");
         var a = service.addAssetToFolder(id, "brand", file);
-        return new AssetResponse(a.getId(), a.getFileName(), a.getContentType(), a.getSizeBytes(), a.getStorageKey());
+        return new AssetResponse(a.getId(), a.getFileName(), a.getContentType(), a.getSizeBytes(), a.getStorageKey(), a.getCachedReadUrl(), a.getCachedReadExpiresAt());
     }
 
     @GetMapping("/{id}/analyze")

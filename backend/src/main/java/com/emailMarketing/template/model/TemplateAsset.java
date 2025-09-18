@@ -16,6 +16,11 @@ public class TemplateAsset {
     private Long sizeBytes;
     private LocalDateTime createdAt = LocalDateTime.now();
 
+    // Cached read URL (e.g., OCI PAR) and its expiry, so we can reuse until it expires
+    @Column(length = 2000)
+    private String cachedReadUrl;
+    private LocalDateTime cachedReadExpiresAt;
+
     public Long getId() {
         return id;
     }
@@ -70,5 +75,21 @@ public class TemplateAsset {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getCachedReadUrl() {
+        return cachedReadUrl;
+    }
+
+    public void setCachedReadUrl(String cachedReadUrl) {
+        this.cachedReadUrl = cachedReadUrl;
+    }
+
+    public LocalDateTime getCachedReadExpiresAt() {
+        return cachedReadExpiresAt;
+    }
+
+    public void setCachedReadExpiresAt(LocalDateTime cachedReadExpiresAt) {
+        this.cachedReadExpiresAt = cachedReadExpiresAt;
     }
 }

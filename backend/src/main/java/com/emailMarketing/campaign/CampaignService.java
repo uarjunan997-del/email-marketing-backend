@@ -4,6 +4,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.emailMarketing.contact.ContactRepository;
+import org.springframework.beans.factory.annotation.Value;
+import com.emailMarketing.contact.Contact;
+import com.emailMarketing.template.TemplateRenderingService;
 
 import java.util.List;
 
@@ -16,17 +19,21 @@ public class CampaignService {
     private final SendingQueueRepository sendingQueueRepository;
     private final CampaignScheduleRepository scheduleRepository;
     private final com.emailMarketing.template.EmailTemplateService emailTemplateService;
+    private final TemplateRenderingService templateRenderingService;
     private final com.emailMarketing.subscription.SubscriptionRepository subscriptionRepository;
     private final com.emailMarketing.deliverability.EmailBounceRepository bounceRepository;
     private final com.emailMarketing.deliverability.EmailComplaintRepository complaintRepository;
     private final com.emailMarketing.deliverability.SuppressionRepository suppressionRepository;
     private final com.emailMarketing.deliverability.UnsubscribeTokenService unsubscribeTokenService;
     private final CampaignRoiRepository roiRepository;
+    @Value("${public.base-url:https://example.com}")
+    private String publicBaseUrl;
 
     public CampaignService(CampaignRepository repo, ContactRepository contactRepository,
             CampaignABTestRepository abRepo, CampaignRecipientRepository recipientRepo,
             SendingQueueRepository sendingQueueRepository, CampaignScheduleRepository scheduleRepository,
             com.emailMarketing.template.EmailTemplateService emailTemplateService,
+            TemplateRenderingService templateRenderingService,
             com.emailMarketing.subscription.SubscriptionRepository subscriptionRepository,
             com.emailMarketing.deliverability.EmailBounceRepository bounceRepository,
             com.emailMarketing.deliverability.EmailComplaintRepository complaintRepository,
@@ -40,6 +47,7 @@ public class CampaignService {
         this.sendingQueueRepository = sendingQueueRepository;
         this.scheduleRepository = scheduleRepository;
         this.emailTemplateService = emailTemplateService;
+        this.templateRenderingService = templateRenderingService;
         this.subscriptionRepository = subscriptionRepository;
         this.bounceRepository = bounceRepository;
         this.complaintRepository = complaintRepository;
@@ -377,23 +385,85 @@ public class CampaignService {
                 }).orElse(100); // default for no subscription
     }
 
+    // Simple cache holder reused within a queue batch (not thread-safe; only used within transactional methods here)
+    private static class TemplateContextCacheEntry {
+        final com.emailMarketing.template.EmailTemplate template;
+        TemplateContextCacheEntry(com.emailMarketing.template.EmailTemplate t){
+            this.template = t;
+        }
+    }
+    private final java.util.Map<Long, TemplateContextCacheEntry> templateCache = new java.util.HashMap<>();
+
     private String resolveRenderedBody(Campaign c, CampaignRecipient r) {
-        if (c.getTemplateId() == null)
-            return "<p>No template selected</p>";
-        return emailTemplateService.get(c.getTemplateId())
-                .map(t -> emailTemplateService.preview(t, java.util.Map.of(
-                        "email", r.getEmail(),
-                        "first_name", "Subscriber",
-                        "campaign_id", c.getId())) + complianceFooter(c, r))
-                .orElse("<p>Template missing</p>");
+        // Determine effective template (variant override if present in recipient)
+        Long templateId = c.getTemplateId();
+        if (r.getVariantCode() != null) {
+            // find variant record and use its template if present
+            var variant = abRepo.findByCampaignId(c.getId()).stream()
+                    .filter(v -> r.getVariantCode().equals(v.getVariantCode()))
+                    .findFirst()
+                    .orElse(null);
+            if (variant != null && variant.getTemplateId() != null) {
+                templateId = variant.getTemplateId();
+            }
+        }
+        if (templateId == null) return "<p>No template selected</p>";
+
+        TemplateContextCacheEntry ctx = templateCache.get(templateId);
+        if (ctx == null) {
+            var opt = emailTemplateService.get(templateId);
+            if (opt.isEmpty()) return "<p>Template missing</p>";
+            var template = opt.get();
+            // (Optional) could prefetch bindings here if we later extend renderer API.
+            ctx = new TemplateContextCacheEntry(template);
+            templateCache.put(templateId, ctx);
+        }
+        Contact contact = null;
+        if (r.getContactId() != null) {
+            contact = contactRepository.findById(r.getContactId()).orElse(null);
+        }
+        String unsubscribeUrl = buildUnsubscribeUrl(c, r);
+        java.util.Map<String,Object> data = buildDataMap(c, r, contact, unsubscribeUrl);
+        // Provide contact + fallback fields for easier variable resolution (renderer already uses bindings)
+        data.put("contact", contact);
+        if (contact != null) {
+            if (contact.getFirstName() != null) data.putIfAbsent("first_name", contact.getFirstName());
+            if (contact.getLastName() != null) data.putIfAbsent("last_name", contact.getLastName());
+        }
+        data.putIfAbsent("email", r.getEmail());
+        // Unsubscribe placeholder handling done in renderer via {{unsubscribe}} token or unsubscribe_url variable
+        TemplateRenderingService.RenderResult result = templateRenderingService.renderDetailed(ctx.template, data);
+        // Log missing required variables (future: attach to diagnostics table)
+        if (!result.getMissingRequired().isEmpty()) {
+            org.slf4j.LoggerFactory.getLogger(CampaignService.class)
+                .info("Campaign {} template {} missing required vars: {}", c.getId(), templateId, result.getMissingRequired());
+        }
+        return result.getHtml();
     }
 
-    private String complianceFooter(Campaign c, CampaignRecipient r) {
-        String token = unsubscribeTokenService.generate(c.getUserId(), r.getEmail(), c.getId());
-        String link = "https://example.com/public/unsubscribe?token=" + token;
-        return "<div style='margin-top:24px;font-size:12px;color:#666;'>You are receiving this email because you opted in. <a href='"
-                + link + "'>Unsubscribe</a></div>";
+    private java.util.Map<String,Object> buildDataMap(Campaign c, CampaignRecipient r, Contact contact, String unsubscribeUrl) {
+        java.util.Map<String,Object> data = new java.util.HashMap<>();
+        data.put("campaign_id", c.getId());
+        data.put("recipient_email", r.getEmail());
+        if (unsubscribeUrl != null) data.put("unsubscribeUrl", unsubscribeUrl);
+        if (r.getVariantCode() != null) data.put("variant_code", r.getVariantCode());
+        if (contact != null) {
+            data.put("first_name", contact.getFirstName() != null ? contact.getFirstName() : "Subscriber");
+            if (contact.getLastName() != null) data.put("last_name", contact.getLastName());
+            if (contact.getCustomFields() != null) data.put("custom_fields", contact.getCustomFields());
+        } else {
+            data.put("first_name", "Subscriber");
+        }
+        return data;
     }
+
+    private String buildUnsubscribeUrl(Campaign c, CampaignRecipient r) {
+        String token = unsubscribeTokenService.generate(c.getUserId(), r.getEmail(), c.getId());
+        String base = publicBaseUrl.endsWith("/") ? publicBaseUrl.substring(0, publicBaseUrl.length()-1) : publicBaseUrl;
+        return base + "/public/unsubscribe?token=" + token;
+    }
+
+    // complianceFooter now inlined into rendering via unsubscribe token placeholder
 
     // Approval workflow
     @Transactional
